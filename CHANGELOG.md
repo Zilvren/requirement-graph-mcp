@@ -1,3 +1,10 @@
+# [1.2.0](https://github.com/Zilvren/requirement-graph-mcp/compare/v1.1.0...v1.2.0) (2026-09-07)
+
+
+### Features
+
+* auto-activate the MCP working directory as the active project ([1a437d2](https://github.com/Zilvren/requirement-graph-mcp/commit/1a437d2bb41c81cd711d3cf510dd1186504f37a5))
+
 # [1.1.0](https://github.com/Zilvren/requirement-graph-mcp/compare/v1.0.0...v1.1.0) (2026-09-07)
 
 
