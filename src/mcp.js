@@ -1,4 +1,5 @@
 const readline = require("node:readline");
+const { version } = require("../package.json");
 const { RequirementGraph, projectDbPath } = require("./db");
 const { importPath, syncImportedDocuments } = require("./importer");
 const { applyStructuredGraph } = require("./generated-graph");
@@ -102,7 +103,7 @@ function startMcpServer(databasePath) {
         respond(request.id, {
           protocolVersion: request.params && request.params.protocolVersion ? request.params.protocolVersion : "2025-03-26",
           capabilities: { tools: {} },
-          serverInfo: { name: "requirement-graph", version: "0.4.1" },
+          serverInfo: { name: "requirement-graph", version },
           instructions: serverInstructions
         });
         return;

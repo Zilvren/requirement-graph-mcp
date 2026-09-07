@@ -25,19 +25,62 @@ function toArray(value) {
   return String(value).split(",").map((item) => item.trim()).filter(Boolean);
 }
 
-function parseScalar(value) {
-  const raw = String(value || "").trim();
-  if (raw.startsWith("[") && raw.endsWith("]")) return raw.slice(1, -1).split(",").map((item) => item.trim()).filter(Boolean);
-  return raw.replace(/^['"]|['"]$/g, "");
+function unquote(value) {
+  const trimmed = String(value).trim();
+  return trimmed.replace(/^(['"])([\s\S]*)\1$/, "$2");
 }
 
+function splitList(value) {
+  const items = [];
+  let current = "";
+  let quote = null;
+  for (const character of String(value)) {
+    if (quote) {
+      if (character === quote) quote = null;
+      else current += character;
+    } else if (character === "'" || character === '"') {
+      quote = character;
+    } else if (character === ",") {
+      items.push(current.trim());
+      current = "";
+    } else {
+      current += character;
+    }
+  }
+  items.push(current.trim());
+  return items.filter(Boolean).map(unquote);
+}
+
+function parseScalar(value) {
+  const raw = String(value || "").trim();
+  if (raw.startsWith("[") && raw.endsWith("]")) return splitList(raw.slice(1, -1));
+  return unquote(raw);
+}
+
+// The importer reads the YAML subset that Markdown Frontmatter normally needs:
+// scalar values, inline [a, b] lists, quoted values, and "- item" block lists.
+// More exotic YAML (nested maps, anchors, multi-line scalars) is not supported.
 function parseFrontmatter(content) {
   const match = String(content).match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
   if (!match) return { metadata: {}, body: content };
   const metadata = {};
-  for (const line of match[1].split(/\r?\n/)) {
-    const match = line.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
-    if (match) metadata[match[1].toLowerCase()] = parseScalar(match[2]);
+  let lastKey = null;
+  for (const rawLine of match[1].split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const entry = line.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
+    if (entry) {
+      lastKey = entry[1].toLowerCase();
+      const value = entry[2].trim();
+      metadata[lastKey] = value === "" ? [] : parseScalar(value);
+      continue;
+    }
+    const item = line.match(/^-\s+(.+)$/);
+    if (item && lastKey) {
+      const list = Array.isArray(metadata[lastKey]) ? metadata[lastKey] : [];
+      list.push(unquote(item[1]));
+      metadata[lastKey] = list;
+    }
   }
   return { metadata, body: content.slice(match[0].length) };
 }
@@ -235,8 +278,7 @@ function collectFiles(input) {
   return files;
 }
 
-function importPath(graph, input) {
-  const files = collectFiles(input);
+function importFiles(graph, files) {
   let imported = 0;
   let relations = 0;
   for (const file of files) {
@@ -266,6 +308,13 @@ function importPath(graph, input) {
   return { imported, files: files.length, declaredRelations: relations, resolvedPending, stats: graph.stats() };
 }
 
+function importPath(graph, input) {
+  const files = collectFiles(input);
+  // A single transaction keeps an import atomic: if one record fails, nothing
+  // is left half-imported, and the whole directory imports in one write batch.
+  return graph.transaction(() => importFiles(graph, files));
+}
+
 function sourceFileFromDocumentPath(sourcePath) {
   return String(sourcePath || "").replace(/#record-\d+$/, "");
 }
@@ -274,21 +323,23 @@ function syncImportedDocuments(graph) {
   const sourceFiles = Array.from(new Set(graph.documentSourcePaths()
     .map(sourceFileFromDocumentPath)
     .filter((file) => fs.existsSync(file) && SUPPORTED.has(path.extname(file).toLowerCase()))));
-  let imported = 0;
-  let declaredRelations = 0;
-  let resolvedPending = 0;
-  for (const file of sourceFiles) {
-    const result = importPath(graph, file);
-    imported += result.imported;
-    declaredRelations += result.declaredRelations;
-    resolvedPending += result.resolvedPending;
+  const seen = new Set();
+  const files = [];
+  for (const sourceFile of sourceFiles) {
+    for (const candidate of collectFiles(sourceFile)) {
+      if (!seen.has(candidate)) {
+        seen.add(candidate);
+        files.push(candidate);
+      }
+    }
   }
+  const result = graph.transaction(() => importFiles(graph, files));
   return {
     syncedFiles: sourceFiles.length,
-    imported,
-    declaredRelations,
-    resolvedPending,
-    stats: graph.stats()
+    imported: result.imported,
+    declaredRelations: result.declaredRelations,
+    resolvedPending: result.resolvedPending,
+    stats: result.stats
   };
 }
 

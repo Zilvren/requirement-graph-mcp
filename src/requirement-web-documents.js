@@ -1,6 +1,6 @@
 const fs = require("node:fs");
 const { DatabaseSync } = require("node:sqlite");
-const { projectDbPath } = require("./db");
+const { escapeLike, projectDbPath } = require("./db");
 
 const DEFAULT_DOCUMENT_LIMIT = 200;
 const MAX_DOCUMENT_LIMIT = 500;
@@ -45,6 +45,7 @@ function withDocumentDatabase(projectRoot, work) {
   let db;
   try {
     db = new DatabaseSync(database, { readOnly: true });
+    db.exec("PRAGMA busy_timeout = 5000");
     if (!hasTable(db, "documents") || !hasTable(db, "nodes")) {
       return { available: false, database, reason: "The Requirement Graph database does not have the expected document tables." };
     }
@@ -79,8 +80,8 @@ function listRequirementDocuments(projectRoot, options = {}) {
     const where = ["d.format <> ?"];
     const parameters = ["codex-generated"];
     if (query) {
-      where.push("(n.stable_id LIKE ? OR n.title LIKE ? OR d.source_path LIKE ?)");
-      const pattern = "%" + query + "%";
+      where.push("(n.stable_id LIKE ? ESCAPE '\\' OR n.title LIKE ? ESCAPE '\\' OR d.source_path LIKE ? ESCAPE '\\')");
+      const pattern = "%" + escapeLike(query) + "%";
       parameters.push(pattern, pattern, pattern);
     }
     const whereClause = where.join(" AND ");

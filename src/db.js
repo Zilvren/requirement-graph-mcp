@@ -17,6 +17,12 @@ function ensureParent(file) {
   ensureGraphGitignore(directory);
 }
 
+function escapeLike(value) {
+  // Escape LIKE wildcards so a search term such as "100%" or "a_b" is matched
+  // literally instead of acting as a pattern.
+  return String(value).replace(/[\\%_]/g, "\\$&");
+}
+
 function ensureColumn(db, table, column, definition) {
   const columns = new Set(db.prepare("PRAGMA table_info(" + table + ")").all().map((row) => row.name));
   if (!columns.has(column)) db.exec("ALTER TABLE " + table + " ADD COLUMN " + column + " " + definition);
@@ -28,6 +34,12 @@ class RequirementGraph {
     ensureParent(this.file);
     this.db = new DatabaseSync(this.file);
     this.db.exec("PRAGMA foreign_keys = ON");
+    // The web UI runs as a separate daemon process, so the MCP server and the
+    // daemon can touch the same database concurrently. busy_timeout turns rare
+    // write contention into a short wait instead of an immediate SQLITE_BUSY
+    // failure. (WAL was considered but caused lingering -shm/-wal handles on
+    // some Windows/node:sqlite setups, so the journal stays in delete mode.)
+    this.db.exec("PRAGMA busy_timeout = 5000");
     this.initialize();
   }
 
@@ -81,10 +93,6 @@ class RequirementGraph {
       "  review_status TEXT NOT NULL DEFAULT 'confirmed',",
       "  provenance TEXT NOT NULL DEFAULT 'declared'",
       ")",
-      ";",
-      "CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(",
-      "  stable_id UNINDEXED, title, body, tokenize = 'unicode61'",
-      ")",
       ";"
     ].join("\n"));
     ensureColumn(this.db, "edges", "provenance", "TEXT NOT NULL DEFAULT 'declared'");
@@ -104,29 +112,43 @@ class RequirementGraph {
   }
 
   upsertNode({ documentId, stableId, title, kind, body, metadata }) {
-    const previous = this.db.prepare("SELECT id FROM nodes WHERE document_id = ?").get(documentId);
-    const result = this.db.prepare([
-      "INSERT INTO nodes (stable_id, title, kind, body, metadata_json, document_id)",
-      "VALUES (?, ?, ?, ?, ?, ?)",
-      "ON CONFLICT(stable_id) DO UPDATE SET",
-      "title = excluded.title, kind = excluded.kind, body = excluded.body, metadata_json = excluded.metadata_json, document_id = excluded.document_id",
-      "RETURNING id"
-    ].join(" ")).get(stableId, title, kind, body, JSON.stringify(metadata || {}), documentId);
-    const nodeId = result.id;
-    if (previous && previous.id !== nodeId) {
-      this.deleteNodeArtifacts(previous.id);
+    const byStable = this.db.prepare("SELECT id, document_id FROM nodes WHERE stable_id = ?").get(stableId);
+    const byDocument = this.db.prepare("SELECT id, stable_id FROM nodes WHERE document_id = ?").get(documentId);
+    if (byStable && byStable.document_id !== documentId && byDocument) {
+      throw new Error("Cannot import \"" + stableId + "\": that node id is already claimed by another document, and this document already has its own node. Give each document a unique stable id.");
     }
+    let nodeId;
+    if (byStable && byStable.document_id === documentId) {
+      // Normal re-import of the same document: update the node in place.
+      this.db.prepare("UPDATE nodes SET title = ?, kind = ?, body = ?, metadata_json = ? WHERE id = ?")
+        .run(title, kind, body, JSON.stringify(metadata || {}), byStable.id);
+      nodeId = byStable.id;
+    } else if (byStable) {
+      // The same stable id now belongs to a different document that owns no
+      // node yet: migrate ownership of the existing node.
+      this.db.prepare("UPDATE nodes SET document_id = ?, title = ?, kind = ?, body = ?, metadata_json = ? WHERE id = ?")
+        .run(documentId, title, kind, body, JSON.stringify(metadata || {}), byStable.id);
+      nodeId = byStable.id;
+    } else if (byDocument) {
+      // This document previously used a different stable id: rename the node in
+      // place so relations already pointing at it stay valid.
+      this.db.prepare("UPDATE nodes SET stable_id = ?, title = ?, kind = ?, body = ?, metadata_json = ? WHERE id = ?")
+        .run(stableId, title, kind, body, JSON.stringify(metadata || {}), byDocument.id);
+      nodeId = byDocument.id;
+    } else {
+      nodeId = this.db.prepare([
+        "INSERT INTO nodes (stable_id, title, kind, body, metadata_json, document_id)",
+        "VALUES (?, ?, ?, ?, ?, ?)"
+      ].join(" ")).run(stableId, title, kind, body, JSON.stringify(metadata || {}), documentId).lastInsertRowid;
+    }
+    // Edges originating here and alias entries are rebuilt on every import.
     this.db.prepare("DELETE FROM aliases WHERE node_id = ?").run(nodeId);
     this.db.prepare("DELETE FROM edges WHERE from_node_id = ?").run(nodeId);
     this.db.prepare("DELETE FROM pending_edges WHERE from_node_id = ?").run(nodeId);
-    this.db.prepare("DELETE FROM documents_fts WHERE stable_id = ?").run(stableId);
-    this.db.prepare("INSERT INTO documents_fts (stable_id, title, body) VALUES (?, ?, ?)").run(stableId, title, body);
     return nodeId;
   }
 
   deleteNodeArtifacts(nodeId) {
-    const node = this.db.prepare("SELECT stable_id FROM nodes WHERE id = ?").get(nodeId);
-    if (node) this.db.prepare("DELETE FROM documents_fts WHERE stable_id = ?").run(node.stable_id);
     this.db.prepare("DELETE FROM aliases WHERE node_id = ?").run(nodeId);
     this.db.prepare("DELETE FROM edges WHERE from_node_id = ? OR to_node_id = ?").run(nodeId, nodeId);
     this.db.prepare("DELETE FROM pending_edges WHERE from_node_id = ?").run(nodeId);
@@ -207,13 +229,10 @@ class RequirementGraph {
   }
 
   clear() {
-    // documents_fts is not linked by a foreign key, so clear it explicitly
-    // before deleting the graph's persisted source documents and nodes.
     this.db.exec([
       "DELETE FROM pending_edges;",
       "DELETE FROM edges;",
       "DELETE FROM aliases;",
-      "DELETE FROM documents_fts;",
       "DELETE FROM nodes;",
       "DELETE FROM documents;"
     ].join("\n"));
@@ -222,13 +241,7 @@ class RequirementGraph {
   clearGenerated() {
     // Generated requirement nodes are a replaceable layer. Keep imported
     // source documents so a later graph can still be traced to its evidence.
-    this.db.exec([
-      "DELETE FROM documents_fts WHERE stable_id IN (",
-      "  SELECT n.stable_id FROM nodes n JOIN documents d ON d.id = n.document_id",
-      "  WHERE d.format = 'codex-generated'",
-      ");",
-      "DELETE FROM documents WHERE format = 'codex-generated';"
-    ].join("\n"));
+    this.db.exec("DELETE FROM documents WHERE format = 'codex-generated';");
   }
 
   sourceDocuments(offset = 0, limit = 20) {
@@ -284,12 +297,13 @@ class RequirementGraph {
   search(query, limit = 10) {
     const cleaned = String(query || "").trim();
     if (!cleaned) return [];
+    const pattern = "%" + escapeLike(cleaned) + "%";
     return this.db.prepare([
       "SELECT n.stable_id, n.title, n.kind, n.body, d.source_path",
       "FROM nodes n JOIN documents d ON d.id = n.document_id",
-      "WHERE n.title LIKE ? OR n.body LIKE ? OR n.stable_id LIKE ?",
+      "WHERE n.title LIKE ? ESCAPE '\\' OR n.body LIKE ? ESCAPE '\\' OR n.stable_id LIKE ? ESCAPE '\\'",
       "ORDER BY n.stable_id LIMIT ?"
-    ].join(" ")).all("%" + cleaned + "%", "%" + cleaned + "%", "%" + cleaned + "%", Math.max(1, Math.min(Number(limit) || 10, 100)));
+    ].join(" ")).all(pattern, pattern, pattern, Math.max(1, Math.min(Number(limit) || 10, 100)));
   }
 
   context(reference) {
@@ -380,4 +394,4 @@ class RequirementGraph {
   }
 }
 
-module.exports = { RequirementGraph, defaultDbPath, projectDbPath };
+module.exports = { RequirementGraph, defaultDbPath, escapeLike, projectDbPath };

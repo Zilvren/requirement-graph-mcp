@@ -91,6 +91,7 @@ function readRequirementGraph(projectRoot, options = {}) {
   let db;
   try {
     db = new DatabaseSync(database, { readOnly: true });
+    db.exec("PRAGMA busy_timeout = 5000");
     if (!hasTable(db, "nodes") || !hasTable(db, "edges") || !hasTable(db, "documents")) {
       return sourceState({
         database,

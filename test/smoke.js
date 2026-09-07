@@ -137,6 +137,58 @@ try {
   initializedGraph.close();
   assert.equal(fs.readFileSync(generatedIgnore, "utf8"), GENERATED_GITIGNORE);
 
+  const frontmatterProject = path.join(temp, "frontmatter-project");
+  fs.mkdirSync(frontmatterProject, { recursive: true });
+  fs.writeFileSync(path.join(frontmatterProject, "fm.md"), [
+    "---",
+    "id: FM",
+    'title: "Multi: colon"',
+    "depends_on:",
+    "  - REQ-ONE",
+    "  - REQ-TWO",
+    'related_to: ["Alpha, beta", Gamma]',
+    "---",
+    "# FM"
+  ].join("\n") + "\n", "utf8");
+  fs.writeFileSync(path.join(frontmatterProject, "one.md"), "---\nid: REQ-ONE\n---\n# One\n", "utf8");
+  fs.writeFileSync(path.join(frontmatterProject, "two.md"), "---\nid: REQ-TWO\n---\n# Two\n", "utf8");
+  const frontmatterGraph = new RequirementGraph(projectDbPath(frontmatterProject));
+  importPath(frontmatterGraph, frontmatterProject);
+  const frontmatterContext = frontmatterGraph.context("FM");
+  assert.equal(frontmatterContext.node.title, "Multi: colon", "quoted Frontmatter values keep colons and lose their quotes");
+  assert.ok(frontmatterContext.outgoing.some((edge) => edge.relation_type === "DEPENDS_ON" && edge.stable_id === "REQ-ONE"));
+  assert.ok(frontmatterContext.outgoing.some((edge) => edge.relation_type === "DEPENDS_ON" && edge.stable_id === "REQ-TWO"));
+  assert.ok(frontmatterContext.unresolved.some((edge) => edge.target_alias === "Gamma"), "an unresolved related target stays pending");
+  assert.ok(frontmatterContext.unresolved.some((edge) => edge.target_alias === "Alpha, beta"), "a quoted comma inside a list item stays one alias");
+  assert.equal(frontmatterGraph.stats().unresolvedEdges, 2, "unresolved related aliases are kept pending");
+  frontmatterGraph.close();
+
+  const renameProject = path.join(temp, "rename-project");
+  fs.mkdirSync(renameProject, { recursive: true });
+  const renameFile = path.join(renameProject, "r.md");
+  fs.writeFileSync(renameFile, "---\nid: R-OLD\n---\n# R\n", "utf8");
+  const renameGraph = new RequirementGraph(projectDbPath(renameProject));
+  importPath(renameGraph, renameFile);
+  assert.equal(renameGraph.stats().nodes, 1);
+  fs.writeFileSync(renameFile, "---\nid: R-NEW\n---\n# R\n", "utf8");
+  importPath(renameGraph, renameFile);
+  assert.equal(renameGraph.stats().nodes, 1, "renaming a document's stable id keeps one node");
+  assert.ok(renameGraph.context("R-NEW"), "the node is reachable under its new stable id");
+  assert.equal(renameGraph.findNode("R-OLD"), null, "the old stable id alias is removed");
+  renameGraph.close();
+
+  const duplicateProject = path.join(temp, "duplicate-project");
+  fs.mkdirSync(duplicateProject, { recursive: true });
+  fs.writeFileSync(path.join(duplicateProject, "a.md"), "---\nid: DUP\n---\n# A\n", "utf8");
+  fs.writeFileSync(path.join(duplicateProject, "b.md"), "---\nid: B-OWN\n---\n# B\n", "utf8");
+  const duplicateGraph = new RequirementGraph(projectDbPath(duplicateProject));
+  importPath(duplicateGraph, duplicateProject);
+  fs.writeFileSync(path.join(duplicateProject, "b.md"), "---\nid: DUP\n---\n# B\n", "utf8");
+  assert.throws(() => importPath(duplicateGraph, path.join(duplicateProject, "b.md")), /already claimed by another document/);
+  assert.equal(duplicateGraph.stats().nodes, 2, "a rejected import leaves the graph untouched");
+  assert.ok(duplicateGraph.context("B-OWN"), "the rejected duplicate does not steal the existing node");
+  duplicateGraph.close();
+
   const pluginRoot = path.resolve(__dirname, "../plugins/project-graph-canvas");
   const manifest = JSON.parse(fs.readFileSync(path.join(pluginRoot, ".codex-plugin", "plugin.json"), "utf8"));
   assert.equal(manifest.name, "project-graph-canvas");
