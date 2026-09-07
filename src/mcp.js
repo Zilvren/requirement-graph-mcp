@@ -1,10 +1,13 @@
 const readline = require("node:readline");
+const fs = require("node:fs");
+const path = require("node:path");
 const { version } = require("../package.json");
 const { RequirementGraph, projectDbPath } = require("./db");
 const { importPath, syncImportedDocuments } = require("./importer");
 const { applyStructuredGraph } = require("./generated-graph");
 const { ensureWebServer } = require("./web-daemon");
 const { activeProject, listProjects, resolveProject } = require("./registry");
+const { dataHome } = require("./project");
 
 // Shared generation policy; tool descriptions below describe only their operation.
 const decompositionPolicy = [
@@ -108,6 +111,18 @@ function startMcpServer(databasePath) {
     }
     const saved = activeProject();
     if (saved) return remember(saved.id, saved.root);
+    // Last resort: the directory the MCP process was launched from (the
+    // "project directory" a Codex client configures) becomes the active
+    // project, so a single-project session needs no extra call.
+    try {
+      const cwd = path.resolve(process.cwd());
+      if (fs.existsSync(cwd) && fs.statSync(cwd).isDirectory() && path.resolve(cwd) !== dataHome()) {
+        const resolved = resolveProject(cwd);
+        if (resolved) return remember(resolved.id, resolved.root);
+      }
+    } catch {
+      // Non-directory cwd or unreadable path: leave the project unset.
+    }
     return null;
   }
 
