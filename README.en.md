@@ -39,10 +39,11 @@ Requirement Graph MCP is a **fully local** requirement & document graph tool tha
 - exposes the graph over MCP so Codex can answer requirement, dependency and impact questions;
 - provides a local web page (relation map + document reader) as the **only recommended graph visualisation**.
 
-Every project owns its own database, stored **centrally in the user data directory** (default
-`~/.requirement-graph`, override with the `REQUIREMENT_GRAPH_HOME` environment variable) and keyed by
-the project directory. No hidden directory is ever written inside a project. Switching projects means
-switching a project id (see “Multiple projects & switching” below); data never mixes across projects.
+Every project owns its own database at `.requirement-graph\requirements-graph.db` in its project root.
+Switching projects means switching a project id (see “Multiple projects & switching” below); data never
+mixes across projects. That directory gets a narrow `.gitignore` so local graph data is not committed.
+The user data directory (default `~/.requirement-graph`, override with `REQUIREMENT_GRAPH_HOME`) holds
+the project registry, web-daemon state and compatibility data for older central databases.
 Nothing leaves your machine except the local web page you run yourself.
 
 ## Key features
@@ -62,6 +63,23 @@ Nothing leaves your machine except the local web page you run yourself.
 | TXT | One document node per file |
 | JSON | An object, an array of objects, or an object with an `items` array |
 | CSV | One node per row |
+
+### Markdown images
+
+Use ordinary relative image syntax in a Markdown body:
+
+~~~md
+![Feedback handling flow](./images/feedback-flow.png)
+![Image with spaces](<images/feedback flow.webp>)
+~~~
+
+On import or sync, PNG, JPEG, GIF, WebP and AVIF files in the **same directory as the Markdown file or a
+descendant directory** are encoded as Base64 `data:image/...` URLs in the graph node body and rendered by
+the node reader; the source `.md` file is not changed. The limit is 2 MiB per image, 12 images and 8 MiB
+total per document. Base64 is an encoding, not compression, so it slightly increases size. Remote,
+absolute, out-of-directory, SVG and oversized references are never read or embedded; their Markdown source
+is retained as text. Re-run `requirement-graph import` or the web sync action after changing an image. The
+reader only accepts the allowlisted Base64 raster images; raw HTML image tags never execute.
 
 Frontmatter fields that create graph relations automatically:
 
@@ -127,9 +145,8 @@ npx requirement-graph-mcp status
 # equivalent: npx -p requirement-graph-mcp requirement-graph <command>
 ~~~
 
-- `init` creates the central database entry for the current project in the **user data directory**
-  (files are named after an encoding of the project directory); the first `import` also creates it.
-  The project directory itself stays clean.
+- `init` creates `.requirement-graph\requirements-graph.db` in the current project; the first `import`
+  also creates it. That directory includes a narrow `.gitignore` for local graph data.
 - Commands accept `--project` (a directory path or a registered id) or `--db` for a custom database path.
 
 ### Multiple projects & switching (project ids)
@@ -164,8 +181,8 @@ npx requirement-graph-mcp ui D:\Work\my-app
 ~~~
 
 The command prints a local address such as `http://127.0.0.1:4747/`. It starts at 4747 and tries the
-next free port if occupied. This is the **only recommended graph visualisation**: it reads only the
-central database of the selected project and offers two views — the relation
+next free port if occupied. This is the **only recommended graph visualisation**: it reads the selected
+project root's `.requirement-graph\requirements-graph.db` and offers two views — the relation
 map and the node reader, which lists requirement nodes with their body text and recorded source evidence.
 
 Optional arguments:
@@ -179,9 +196,8 @@ requirement-graph serve --web --project D:\Work\my-app
 ~~~
 
 The web server only binds to `127.0.0.1`, `::1` or `localhost` — it never listens on LAN interfaces.
-It is pinned to the project given at startup and refuses web requests for other project paths.
-Clicking “re-identify relations” writes to that project’s database.
-Press `Ctrl+C` to stop.
+The project given at startup is the initial project. Clicking “re-identify relations” writes to the
+currently selected project's database. Press `Ctrl+C` to stop.
 
 #### Persistent: the web page no longer drops when a Codex session ends
 
@@ -259,10 +275,23 @@ open the returned localhost URL. The relation map is zoomable, draggable and sea
 shows its source file, kind and visible relations. The “node reader” lists requirement nodes with their
 split body text and recorded source-evidence excerpts.
 
-The web page’s data scope is fixed:
+The web toolbar has a **Registered projects** dropdown populated from the same registry as
+`requirement-graph project list`; select an entry to switch. The **Project path** field remains available
+for another existing directory: press Enter or choose **Open project**. Switching replaces the current map
+and node-reader content; it never merges data from projects. A project with no imported documents shows an
+empty graph. The most recently opened path is restored in this browser, while map views and reader
+selections remain separate per project. A manually entered path is not registered automatically; run
+`requirement-graph project add <path>` when it should appear in the dropdown later.
 
-- **Requirement Graph only**: reads the central database of the active project.
+The web page’s data scope is fixed to the selected project:
+
+- **Requirement Graph only**: prefers `.requirement-graph\requirements-graph.db` in the selected project
+  root, and falls back to an older central user-data database only when no local graph exists.
 - It does **not** read external code indexes or show code symbols, files, modules or code-relation layers.
+
+A project path is not accepted as an ordinary read-API URL parameter. The page first obtains a short-lived
+selection token through a local CSRF-protected action; only then do graph, sync and map-state requests use
+that token. This prevents arbitrary links from reading local directories.
 
 The page shows structural relations such as `depends_on`, `implements`, `validates` and `parent` by
 default. Plain Markdown/Wiki links are low-confidence `REFERENCES` — not confirmed dependencies; enable
@@ -388,7 +417,7 @@ requirement-graph-mcp/
 │   ├── index.js                 # entry: init / import / status / serve / ui
 │   ├── db.js                    # SQLite database wrapper
 │   ├── importer.js              # Markdown/TXT/JSON/CSV import
-│   ├── project.js               # user data home & central database resolution (realpath)
+│   ├── project.js               # project-local graph, registry and legacy central-db resolution (realpath)
 │   ├── registry.js              # project registry: projectId ↔ root, switching
 │   ├── mcp.js                   # MCP server (use_project switches projects)
 │   ├── web.js / web-ui.js       # local web server

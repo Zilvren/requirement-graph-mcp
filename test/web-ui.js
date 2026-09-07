@@ -61,6 +61,9 @@ async function testLayeredInteractions(html) {
     "",
     "---",
     "",
+    "![嵌入架构图](data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9WlB9HcAAAAASUVORK5CYII=)",
+    "![不安全 SVG](data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=)",
+    "",
     "```json",
     "<script>window.__markdownXss = true</script>",
     "```",
@@ -87,14 +90,40 @@ async function testLayeredInteractions(html) {
     ].map(([source, target, relationType], index) => ({ id: String(index), source, target, relationType })),
     sources: [], warnings: [], relationshipScope: "structural", projectPath: "D:\\fixture-project"
   };
+  const alternateFixture = {
+    nodes: [{ id: "alternate", title: "alternate", kind: "requirement", body: "alternate project body" }],
+    edges: [], sources: [], warnings: [], relationshipScope: "structural", projectPath: "D:\\alternate-project"
+  };
   const storage = new Map();
   const localStorage = {
     getItem(key) { return storage.has(key) ? storage.get(key) : null; },
     setItem(key, value) { storage.set(String(key), String(value)); }
   };
   let persistedMapState = null;
+  const requests = [];
   const fetchStub = async (url, options = {}) => {
-    if (String(url).includes("/api/map-view-state")) {
+    const requestUrl = String(url);
+    requests.push({ url: requestUrl, options });
+    if (requestUrl.includes("/api/projects")) {
+      return {
+        ok: true,
+        json: async () => ({
+          structuredContent: {
+            projects: [
+              { id: "fixture-project", name: "fixture-project", root: "D:\\fixture-project" },
+              { id: "alternate-project", name: "alternate-project", root: "D:\\alternate-project" }
+            ]
+          }
+        })
+      };
+    }
+    if (requestUrl.includes("/api/project-selection")) {
+      return {
+        ok: true,
+        json: async () => ({ structuredContent: { projectPath: "D:\\alternate-project", selectionToken: "alternate-project-token" } })
+      };
+    }
+    if (requestUrl.includes("/api/map-view-state")) {
       if (options.method === "PUT") {
         persistedMapState = JSON.parse(options.body);
         return { ok: true, json: async () => ({ structuredContent: { state: persistedMapState } }) };
@@ -105,7 +134,8 @@ async function testLayeredInteractions(html) {
       }
       return { ok: true, json: async () => ({ structuredContent: { state: persistedMapState } }) };
     }
-    return { ok: true, json: async () => ({ structuredContent: fixture }) };
+    const graphFixture = requestUrl.includes("project=alternate-project-token") ? alternateFixture : fixture;
+    return { ok: true, json: async () => ({ structuredContent: graphFixture }) };
   };
   const windowStub = {
     RequirementGraphHierarchy: hierarchyApi, addEventListener() {}, clearTimeout() {},
@@ -120,6 +150,9 @@ async function testLayeredInteractions(html) {
   assert.ok(script);
   vm.runInContext(script, context, { timeout: 2000 });
   await new Promise(setImmediate);
+  await new Promise(setImmediate);
+  assert.ok(get("project-picker").children.some((option) => option.value === "D:\\alternate-project"),
+    "the registered project dropdown loads from the local project list");
   function bootReloadedUi() {
     const reloadedElements = new Map();
     const reloadedGet = (id) => {
@@ -222,7 +255,12 @@ async function testLayeredInteractions(html) {
   assert.equal(renderedLinks[0].attributes.target, "_blank");
   assert.equal(renderedLinks[0].attributes.rel, "noopener noreferrer");
   assert.equal(descendants(renderedNodeBody, "SCRIPT").length, 0, "raw script tags are never parsed into DOM");
-  assert.equal(descendants(renderedNodeBody, "IMG").length, 0, "raw HTML is rendered as text, not DOM");
+  const renderedImages = descendants(renderedNodeBody, "IMG");
+  assert.equal(renderedImages.length, 1, "allowlisted Base64 Markdown images render as images");
+  assert.equal(renderedImages[0].attributes.alt, "嵌入架构图");
+  assert.match(renderedImages[0].attributes.src, /^data:image\/png;base64,/);
+  assert.equal(renderedImages[0].attributes.loading, "lazy");
+  assert.match(renderedText(renderedNodeBody), /data:image\/svg\+xml;base64/, "SVG data URLs stay harmless Markdown text");
   assert.equal(windowStub.__rawMarkdownXss, undefined, "raw script text never executes");
   assert.doesNotMatch(renderedText(renderedNodeBody), /^$/, "the Markdown renderer preserves a text fallback");
   assert.match(renderedText(renderedNodeBody), /javascript:window\.__markdownXss=true/, "unsafe links remain harmless text");
@@ -271,6 +309,17 @@ async function testLayeredInteractions(html) {
   await new Promise(setImmediate);
   await new Promise(setImmediate);
   assert.equal(persistedMapState, null, "Reset map clears the project-local saved view");
+  get("project-picker").value = "D:\\alternate-project";
+  get("project-picker").fire("change");
+  await new Promise(setImmediate);
+  await new Promise(setImmediate);
+  await new Promise(setImmediate);
+  assert.equal(get("project-label").textContent, "alternate-project", "switching updates the visible project label");
+  assert.deepEqual(titles(), ["alternate"], "switching replaces the current graph rather than merging projects");
+  assert.ok(requests.some((request) => request.url.includes("/api/projects")), "the picker reads the registered project list");
+  assert.ok(requests.some((request) => request.url.includes("/api/project-selection") && request.options.method === "POST"));
+  assert.ok(requests.some((request) => request.url.includes("/api/graph?") && request.url.includes("project=alternate-project-token")),
+    "all graph reads after selection carry the server-issued project token");
 }
 
 async function main() {
@@ -340,6 +389,7 @@ async function main() {
       assert.doesNotMatch(html, /<pre id="reader-document-content"/);
       assert.match(html, /function renderMarkdownContent/);
       assert.match(html, /function safeMarkdownLinkHref/);
+      assert.match(html, /function safeMarkdownImageSrc/);
       assert.match(html, /function parseMarkdownTable/);
       assert.match(html, /markdown-table-scroll/);
       assert.doesNotMatch(html, /\.innerHTML\s*=/);
@@ -352,7 +402,13 @@ async function main() {
       assert.match(html, /单击查看关系，双击阅读正文/);
       assert.match(html, /function refreshReaderNodes/);
       assert.match(html, /function readerNodeSourceRefs/);
-      assert.match(html, /\/api\/graph\?/);
+      assert.match(html, /id="project-path"/);
+      assert.match(html, /id="switch-project"/);
+      assert.match(html, /id="project-picker"/);
+      assert.match(html, /function openProjectPath/);
+      assert.match(html, /function refreshProjectPicker/);
+      assert.match(html, /\/api\/projects/);
+      assert.match(html, /apiUrl\("\/api\/graph"/);
       assert.doesNotMatch(html, /reader-load-more|\/api\/documents|\/api\/document\?/);
       assert.match(html, /\.layout, \.reader-view\s*\{\s*grid-row:\s*4;/);
       assert.match(html, /\.legend\[hidden\]/);

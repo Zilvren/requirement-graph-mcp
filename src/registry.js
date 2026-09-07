@@ -5,8 +5,9 @@ const { dataHome, registryFile, resolveProjectRoot } = require("./project");
 // A lightweight registry that maps a stable, human-readable project id to a
 // project root (any directory: a single repo, a monorepo root, a package
 // folder). It exists so MCP/CLI can switch projects by id across many folders
-// without requiring a per-project working-directory configuration. The graph
-// databases themselves stay central (see project.centralDbPath), keyed by root.
+// without requiring a per-project working-directory configuration. Graph
+// databases live under their selected project root; older central databases
+// remain a compatibility fallback.
 
 function readRegistry() {
   try {

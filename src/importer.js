@@ -1,6 +1,7 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
+const { embedMarkdownImages } = require("./markdown-images");
 
 const RELATION_FIELDS = {
   depends_on: "DEPENDS_ON",
@@ -210,7 +211,11 @@ function parseCsv(content) {
 }
 
 function standardRecord({ sourcePath, format, content, body: suppliedBody, metadata = {}, title, kind, stableId }) {
-  const body = String(suppliedBody === undefined ? content : suppliedBody).trim();
+  const sourceBody = String(suppliedBody === undefined ? content : suppliedBody).trim();
+  // Keep the source document unchanged, but make supported local Markdown
+  // images portable in the graph's reader body. This lets the loopback web UI
+  // render them without exposing project files as a web-server asset route.
+  const body = format === "markdown" ? embedMarkdownImages(sourceBody, sourcePath) : sourceBody;
   const id = stableId || String(metadata.id || metadata.key || "").trim() || slugFromPath(sourcePath);
   const relations = [];
   for (const [field, relationType] of Object.entries(RELATION_FIELDS)) {
@@ -219,8 +224,8 @@ function standardRecord({ sourcePath, format, content, body: suppliedBody, metad
     }
   }
   if (format === "markdown") {
-    const semantic = semanticMarkdownRelations(body, sourcePath);
-    relations.push(...semantic.relations, ...markdownLinks(body, sourcePath, semantic.consumedLines));
+    const semantic = semanticMarkdownRelations(sourceBody, sourcePath);
+    relations.push(...semantic.relations, ...markdownLinks(sourceBody, sourcePath, semantic.consumedLines));
   }
   return {
     sourcePath, format, content, stableId: id, title: title || String(metadata.title || "").trim() || firstHeading(body) || id,

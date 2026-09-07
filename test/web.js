@@ -4,6 +4,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { RequirementGraph, projectDbPath } = require("../src/db");
 const { importPath } = require("../src/importer");
+const { registerProject } = require("../src/registry");
 const { webUiHtml } = require("../src/web-ui");
 const { createWebServer, normalizeHost, normalizePort, startWebServer } = require("../src/web");
 
@@ -51,6 +52,14 @@ async function main() {
   const graph = new RequirementGraph(projectDbPath(projectRoot));
   importPath(graph, documentPath);
   graph.close();
+  const alternateProject = path.join(projectRoot, "alternate-project");
+  fs.mkdirSync(alternateProject);
+  const alternateDocumentPath = path.join(alternateProject, "alternate.md");
+  fs.writeFileSync(alternateDocumentPath, "---\nid: ALT-REQ\ntitle: Alternate project requirement\n---\n# Alternate project requirement\n", "utf8");
+  const alternateGraph = new RequirementGraph(projectDbPath(alternateProject));
+  importPath(alternateGraph, alternateDocumentPath);
+  alternateGraph.close();
+  const registeredAlternateProject = registerProject(alternateProject);
 
   assert.throws(() => createWebServer(projectRoot, { host: "0.0.0.0" }), /only bind/);
   const ui = await startWebServer(projectRoot, { port: 0 });
@@ -83,7 +92,12 @@ async function main() {
     assert.match(rootHtml, /deriveSingleParentHierarchy/);
     assert.match(rootHtml, /showCrossRelations/);
     assert.match(rootHtml, /function layoutHierarchy/);
-    assert.match(rootHtml, /\/api\/graph\?/);
+    assert.match(rootHtml, /id="project-path"/);
+    assert.match(rootHtml, /id="switch-project"/);
+    assert.match(rootHtml, /id="project-picker"/);
+    assert.match(rootHtml, /\/api\/project-selection/);
+    assert.match(rootHtml, /\/api\/projects/);
+    assert.match(rootHtml, /apiUrl\("\/api\/graph"/);
     assert.doesNotMatch(rootHtml, /\/api\/documents|\/api\/document\?/);
     assert.match(rootHtml, /\.layout\[hidden\]/);
     assert.doesNotMatch(rootHtml, /reader-inbound|reader-outbound|上游关系|下游关系/);
@@ -95,6 +109,43 @@ async function main() {
     assert.equal(graphResult.structuredContent.projectPath, projectRoot);
     assert.equal(graphResult.structuredContent.source, "requirements");
     assert.ok(graphResult.structuredContent.nodes.some((node) => node.id === "rg:WEB-REQ"));
+
+    const projectsResponse = await fetch(ui.url + "api/projects");
+    assert.equal(projectsResponse.status, 200);
+    const projects = (await projectsResponse.json()).structuredContent;
+    assert.equal(projects.defaultProjectPath, projectRoot);
+    assert.ok(projects.projects.some((project) => project.root === projectRoot), "the served project appears even before registration");
+    assert.ok(projects.projects.some((project) => project.id === registeredAlternateProject.id && project.root === alternateProject),
+      "the project picker uses the same registered project list as the CLI");
+    const invalidProjectsMethod = await fetch(ui.url + "api/projects", { method: "POST" });
+    assert.equal(invalidProjectsMethod.status, 405);
+
+    const untrustedProjectToken = await fetch(ui.url + "api/graph?project=not-issued-by-this-ui");
+    assert.equal(untrustedProjectToken.status, 400, "a path cannot be supplied directly to a read endpoint");
+    const missingProjectToken = await fetch(ui.url + "api/project-selection", {
+      method: "POST", body: JSON.stringify({ projectPath: alternateProject })
+    });
+    assert.equal(missingProjectToken.status, 403);
+    const invalidProjectSelection = await fetch(ui.url + "api/project-selection", {
+      method: "POST",
+      headers: { "X-Requirement-Graph-Token": ui.csrfToken, Origin: ui.url.slice(0, -1) },
+      body: JSON.stringify({ projectPath: path.join(projectRoot, "does-not-exist") })
+    });
+    assert.equal(invalidProjectSelection.status, 400);
+    const selectedProject = await fetch(ui.url + "api/project-selection", {
+      method: "POST",
+      headers: { "X-Requirement-Graph-Token": ui.csrfToken, Origin: ui.url.slice(0, -1) },
+      body: JSON.stringify({ projectPath: alternateProject })
+    });
+    assert.equal(selectedProject.status, 200);
+    const projectSelection = (await selectedProject.json()).structuredContent;
+    assert.equal(projectSelection.projectPath, alternateProject);
+    assert.match(projectSelection.selectionToken, /^[A-Za-z0-9_-]+$/);
+    const alternateGraphResponse = await fetch(ui.url + "api/graph?project=" + encodeURIComponent(projectSelection.selectionToken));
+    assert.equal(alternateGraphResponse.status, 200);
+    const alternateGraphResult = (await alternateGraphResponse.json()).structuredContent;
+    assert.equal(alternateGraphResult.projectPath, alternateProject);
+    assert.ok(alternateGraphResult.nodes.some((node) => node.id === "rg:ALT-REQ"));
 
     const documentsResponse = await fetch(ui.url + "api/documents?project_path=" + encodeURIComponent(os.tmpdir()));
     assert.equal(documentsResponse.status, 200);

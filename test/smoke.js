@@ -4,6 +4,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { DatabaseSync } = require("node:sqlite");
 const { RequirementGraph, projectDbPath } = require("../src/db");
+const { centralDbPath, localProjectDbPath } = require("../src/project");
 const { importPath, syncImportedDocuments } = require("../src/importer");
 const { applyStructuredGraph } = require("../src/generated-graph");
 const { buildRequirementWebGraph } = require("../src/requirement-web-graph");
@@ -130,8 +131,7 @@ try {
   semanticGraph.close();
 
   // Registry: projects are registered by directory, switched by id, and all
-  // graph data lives centrally under REQUIREMENT_GRAPH_HOME (never inside the
-  // project directory).
+  // Project registration does not create a graph directory by itself.
   const { activeProject, listProjects, registerProject, removeProject, resolveProject, setActiveProject } = require("../src/registry");
   const projectA = path.join(temp, "project-a");
   const projectB = path.join(temp, "project-b");
@@ -153,10 +153,22 @@ try {
   removeProject("project-b");
   assert.deepEqual(listProjects().map((p) => p.id), ["project-a"]);
 
-  // No per-project data directory is ever created inside a project root.
+  // A new graph belongs to the selected project, but asking for its path does
+  // not create files or folders.
   const projectDb = projectDbPath(projectA);
-  assert.match(projectDb, new RegExp(process.env.REQUIREMENT_GRAPH_HOME.replace(/[\\/]/g, "\\$&")));
+  assert.equal(projectDb, localProjectDbPath(projectA));
   assert.equal(fs.existsSync(path.join(projectA, ".requirement-graph")), false);
+
+  // Keep pre-1.3 central databases readable for projects that do not yet have
+  // a project-local graph; a local graph always wins once it exists.
+  const compatibilityProject = path.join(temp, "compatibility-project");
+  fs.mkdirSync(compatibilityProject, { recursive: true });
+  const centralCompatibilityDb = centralDbPath(compatibilityProject);
+  new RequirementGraph(centralCompatibilityDb).close();
+  assert.equal(projectDbPath(compatibilityProject), centralCompatibilityDb);
+  const localCompatibilityDb = localProjectDbPath(compatibilityProject);
+  new RequirementGraph(localCompatibilityDb).close();
+  assert.equal(projectDbPath(compatibilityProject), localCompatibilityDb);
 
   const frontmatterProject = path.join(temp, "frontmatter-project");
   fs.mkdirSync(frontmatterProject, { recursive: true });

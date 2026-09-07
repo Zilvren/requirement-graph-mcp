@@ -86,8 +86,8 @@ async function main() {
     assert.equal(JSON.parse(activated.result.content[0].text).active, true);
     const statsNoPath = await request("tools/call", { name: "requirement_graph_stats", arguments: {} });
     const statsResult = JSON.parse(statsNoPath.result.content[0].text);
-    assert.ok(statsResult.database.endsWith(".db"), "stats resolve the central database of the active project");
-    assert.ok(fs.existsSync(statsResult.database), "the active project database exists centrally");
+    assert.ok(statsResult.database.endsWith(".db"), "stats resolve the active project's database");
+    assert.ok(fs.existsSync(statsResult.database), "the active project database exists");
 
     const opened = await request("tools/call", { name: "requirement_graph_open_web", arguments: { project_path: projectRoot } });
     const openResult = JSON.parse(opened.result.content[0].text);

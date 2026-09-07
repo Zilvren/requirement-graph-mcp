@@ -38,9 +38,11 @@ Requirement Graph MCP 是一个 **完全本地运行** 的个人需求与文档�
 - 通过 MCP 协议接入 Codex，让 AI 在问答时自动查询需求上下文、依赖与影响范围；
 - 提供一个本地网页（关系地图 + 节点阅读）作为**唯一推荐的图谱可视化入口**。
 
-每个项目使用自己的数据库，**集中存放在用户数据目录**（默认 `~/.requirement-graph`，可用环境变量
-`REQUIREMENT_GRAPH_HOME` 覆盖），按项目目录一一对应。项目目录本身不会被写入任何隐藏目录。
-切换项目就是切换一个 project id（见下文「多项目与切换」）；不同项目的数据不会混在一起。
+每个项目使用自己的数据库，位于项目根目录的
+`.requirement-graph\requirements-graph.db`。切换项目就是切换一个 project id（见下文「多项目与切换」）；
+不同项目的数据不会混在一起。目录会自动写入只忽略本地图谱数据的 `.gitignore`，不会把数据库提交进项目。
+用户数据目录（默认 `~/.requirement-graph`，可用环境变量 `REQUIREMENT_GRAPH_HOME` 覆盖）只保存项目登记表、
+网页守护进程状态以及旧版中央数据库兼容数据。
 除你主动运行的本地网页外，没有任何内容会离开你的机器。
 
 ## 核心特性
@@ -60,6 +62,22 @@ Requirement Graph MCP 是一个 **完全本地运行** 的个人需求与文档�
 | TXT | 每个文件成为一张文档节点 |
 | JSON | 对象、对象数组，或带 `items` 数组的对象 |
 | CSV | 每一行成为一张节点 |
+
+### Markdown 图片
+
+在 Markdown 正文中写普通的相对图片链接即可：
+
+~~~md
+![反馈处理流程](./images/feedback-flow.png)
+![带空格的图片](<images/feedback flow.webp>)
+~~~
+
+导入或同步时，会将**当前 Markdown 文件所在目录或其子目录**中的 PNG、JPEG、GIF、WebP、AVIF
+编码为 Base64 `data:image/...`，保存到图谱的节点正文并由“节点阅读”页渲染；原 `.md` 文件不会被改写。
+每张图片上限 2 MiB，每篇文档至多 12 张、合计 8 MiB。Base64 是编码而不是压缩，图片会略微变大。
+远程、绝对、越出文档目录、SVG 和超限图片不会被读取或嵌入；原始 Markdown 会保留为文本。修改图片后，
+重新执行 `requirement-graph import` 或网页中的同步即可更新。阅读页仅接受上述白名单的 Base64 栅格图片，
+原始 HTML 图片不会执行。
 
 Markdown 的 Frontmatter 可使用以下字段自动建关系：
 
@@ -123,8 +141,8 @@ npx requirement-graph-mcp status
 # 等价写法：npx -p requirement-graph-mcp requirement-graph <命令>
 ~~~
 
-- `init` 会在**用户数据目录**里为当前项目创建对应的数据库（`.db` 按项目目录编码命名）；
-  首次 `import` 也会自动创建它。项目目录本身保持干净。
+- `init` 会在当前项目的 `.requirement-graph\requirements-graph.db` 创建数据库；首次 `import` 也会自动创建它。
+  该目录包含一份只忽略本地图谱数据的 `.gitignore`。
 - 命令可传 `--project`（目录路径或已登记的 id）指定项目，或传 `--db` 使用自定义数据库路径。
 
 ### 多项目与切换（project id）
@@ -156,8 +174,8 @@ npx requirement-graph-mcp ui D:\Work\my-app
 ~~~
 
 命令会打印一个本地地址，例如 `http://127.0.0.1:4747/`。默认从 4747 开始；端口已被
-占用时会自动尝试后续端口。这是**唯一推荐的图谱可视化入口**：只读取用户数据目录中
-该项目的数据库，提供“关系地图”和“节点阅读”两个视图；
+占用时会自动尝试后续端口。这是**唯一推荐的图谱可视化入口**：读取所选项目根目录中的
+`.requirement-graph\requirements-graph.db`，提供“关系地图”和“节点阅读”两个视图；
 节点阅读页列出需求节点，直接显示节点正文及其已记录的原文证据。
 
 可选参数：
@@ -170,9 +188,8 @@ requirement-graph ui D:\Work\my-app --port 4750
 requirement-graph serve --web --project D:\Work\my-app
 ~~~
 
-网页服务只允许绑定 `127.0.0.1`、`::1` 或 `localhost`，不会监听局域网地址；它固定到启动时
-指定的项目，不接受网页请求提供其他项目路径。点击“重新识别关系”会写入该项目的数据库，
-按 `Ctrl+C` 停止服务。
+网页服务只允许绑定 `127.0.0.1`、`::1` 或 `localhost`，不会监听局域网地址；启动时指定的项目
+是初始项目。点击“重新识别关系”会写入当前选择项目的数据库，按 `Ctrl+C` 停止服务。
 
 #### 持久化：网页服务不再随 Codex 会话掉线
 
@@ -242,10 +259,20 @@ args = ["serve", "--mcp"]
 localhost 地址。关系地图可缩放、拖拽、搜索，点击节点可查看来源文件、类型和可见关系；
 “节点阅读”会列出需求节点，显示拆分后的正文，并展示已记录的原文证据摘录。
 
-网页的数据范围固定为：
+网页工具栏中的“已登记项目”下拉框会自动读取与 `requirement-graph project list` 相同的项目登记表；
+选择项目即可切换。也可在“项目路径”中直接输入另一个已有目录，按 Enter 或点击“打开项目”。
+切换会替换当前地图和节点阅读内容，不会合并不同项目的数据；目标项目尚未导入时会显示空图。
+最近成功打开的路径会在此浏览器中恢复，各项目的地图视图、节点阅读选择仍分别保存。直接输入的路径
+不会自动登记；若希望它下次出现在下拉框中，请执行 `requirement-graph project add <路径>`。
 
-- **Requirement Graph**：只读取用户数据目录中该项目的数据库；
+网页的数据范围固定为当前选择的项目：
+
+- **Requirement Graph**：优先读取所选项目根目录的 `.requirement-graph\requirements-graph.db`；
+  仅当本地库不存在时才兼容读取旧版用户数据目录中央库；
 - 不读取外部代码索引，也不显示代码符号、文件、模块或代码关系图层。
+
+项目路径不会作为普通 URL 参数传给读取接口。网页须先通过本地、受 CSRF 保护的项目选择操作取得
+短时凭据，随后图谱、同步和地图状态请求才会使用该凭据，避免任意链接读取本机目录。
 
 网页默认只显示 `depends_on`、`implements`、`validates`、`parent` 等结构关系。
 普通 Markdown/Wiki 链接属于低置信度 `REFERENCES` 引用，不是已确认的需求依赖；
@@ -357,7 +384,7 @@ requirement-graph-mcp/
 │   ├── index.js                 # 入口：init / import / status / serve / ui
 │   ├── db.js                    # SQLite 数据库封装
 │   ├── importer.js              # Markdown/TXT/JSON/CSV 导入
-│   ├── project.js               # 用户数据目录与中央数据库定位（realpath 规范化）
+│   ├── project.js               # 项目本地图谱库、登记表与旧版中央库兼容定位（realpath 规范化）
 │   ├── registry.js              # 项目登记表：projectId ↔ 根目录、切换
 │   ├── mcp.js                   # MCP 服务（use_project 切换项目）
 │   ├── web.js / web-ui.js       # 本地网页服务

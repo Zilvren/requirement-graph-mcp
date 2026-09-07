@@ -1,22 +1,45 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { DatabaseSync } = require("node:sqlite");
-const { centralDbPath } = require("./project");
+const {
+  DATA_DIRECTORY_NAME,
+  PROJECT_DATABASE_FILE,
+  centralDbPath,
+  ensureGraphGitignore,
+  localProjectDbPath
+} = require("./project");
 
 function defaultDbPath() {
-  return centralDbPath(process.cwd());
+  return projectDbPath(process.cwd());
 }
 
-// All graph data is stored centrally under the user data home, keyed by the
-// canonical project root. A "project" is the directory whose documents were
-// imported; switching projects means switching roots, never the installation.
+function databaseExists(file) {
+  try {
+    return fs.statSync(file).isFile();
+  } catch {
+    return false;
+  }
+}
+
+// A project-local graph is the canonical store when it exists. Older 1.2
+// installations kept data under the user data directory, so retain that as a
+// read/write fallback only when this project has no local graph yet. New
+// projects therefore keep their database with the selected project instead of
+// silently creating another, empty graph elsewhere.
 function projectDbPath(projectPath) {
-  return centralDbPath(projectPath);
+  const local = localProjectDbPath(projectPath);
+  if (databaseExists(local)) return local;
+  const central = centralDbPath(projectPath);
+  if (databaseExists(central)) return central;
+  return local;
 }
 
 function ensureParent(file) {
   const directory = path.dirname(path.resolve(file));
   fs.mkdirSync(directory, { recursive: true });
+  if (path.basename(file) === PROJECT_DATABASE_FILE && path.basename(directory) === DATA_DIRECTORY_NAME) {
+    ensureGraphGitignore(directory);
+  }
 }
 
 function escapeLike(value) {

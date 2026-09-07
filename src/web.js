@@ -1,10 +1,12 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const http = require("node:http");
+const path = require("node:path");
 const { RequirementGraph, projectDbPath } = require("./db");
 const { syncImportedDocuments } = require("./importer");
 const { MAX_STATE_BYTES, readMapViewState, removeMapViewState, writeMapViewState } = require("./map-view-state");
 const { resolveProjectRoot } = require("./project");
+const { activeProject, listProjects } = require("./registry");
 const { listRequirementDocuments, readRequirementDocument } = require("./requirement-web-documents");
 const { buildRequirementWebGraph } = require("./requirement-web-graph");
 const { webUiHtml } = require("./web-ui");
@@ -14,6 +16,9 @@ const DEFAULT_UI_PORT = 4747;
 const MAX_AUTOMATIC_PORT_TRIES = 20;
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1", "localhost"]);
 const RELATIONSHIP_SCOPES = new Set(["all", "structural"]);
+const MAX_PROJECT_SELECTION_BYTES = 4 * 1024;
+const MAX_PROJECT_SELECTIONS = 64;
+const PROJECT_SELECTION_TTL_MS = 8 * 60 * 60 * 1000;
 
 function normalizeHost(value) {
   const host = String(value || DEFAULT_UI_HOST).trim();
@@ -132,9 +137,59 @@ function requestMatchesOrigin(request, host) {
 }
 
 function createWebHandler(projectRoot, options = {}) {
-  const graphDatabase = projectDbPath(projectRoot);
   const host = options.host || DEFAULT_UI_HOST;
   const csrfToken = options.csrfToken;
+  const projectSelections = new Map();
+
+  function pruneProjectSelections(now = Date.now()) {
+    for (const [token, selection] of projectSelections) {
+      if (selection.expiresAt <= now) projectSelections.delete(token);
+    }
+    while (projectSelections.size >= MAX_PROJECT_SELECTIONS) {
+      const oldest = projectSelections.keys().next().value;
+      if (!oldest) return;
+      projectSelections.delete(oldest);
+    }
+  }
+
+  function selectProject(rawProjectPath) {
+    const candidate = String(rawProjectPath || "").trim();
+    if (!candidate || candidate.length > 2048) throw clientError("Project path is invalid.");
+    const selectedRoot = resolveProjectRoot(candidate);
+    try {
+      if (!fs.statSync(selectedRoot).isDirectory()) throw clientError("Project path must be an existing directory.");
+    } catch (error) {
+      if (error && error.status) throw error;
+      throw clientError("Project path must be an existing directory.");
+    }
+    pruneProjectSelections();
+    const token = crypto.randomBytes(24).toString("base64url");
+    projectSelections.set(token, { projectRoot: selectedRoot, expiresAt: Date.now() + PROJECT_SELECTION_TTL_MS });
+    return { projectRoot: selectedRoot, token };
+  }
+
+  function projectForRequest(searchParams) {
+    const token = String(searchParams.get("project") || "").trim();
+    if (!token) return projectRoot;
+    pruneProjectSelections();
+    const selection = projectSelections.get(token);
+    if (!selection) throw clientError("Project selection is invalid or expired.");
+    return selection.projectRoot;
+  }
+
+  function availableProjects() {
+    const registeredProjects = listProjects();
+    const includesDefaultProject = registeredProjects.some((project) => project.root === projectRoot);
+    const projects = includesDefaultProject
+      ? registeredProjects
+      : [{ id: null, name: path.basename(projectRoot) || projectRoot, root: projectRoot }, ...registeredProjects];
+    return {
+      activeProject: activeProject(),
+      defaultProjectPath: projectRoot,
+      projects
+    };
+  }
+
   return async function handle(request, response) {
     const url = new URL(request.url || "/", "http://localhost");
     try {
@@ -147,43 +202,57 @@ function createWebHandler(projectRoot, options = {}) {
       if (request.method === "GET" && url.pathname === "/api/health") {
         return writeJson(response, 200, { ok: true, project: projectRoot });
       }
+      if (request.method === "GET" && url.pathname === "/api/projects") {
+        return writeJson(response, 200, { structuredContent: availableProjects() });
+      }
+      if (request.method === "POST" && url.pathname === "/api/project-selection") {
+        if (!requestMatchesOrigin(request, host) || request.headers["x-requirement-graph-token"] !== csrfToken) {
+          return writeJson(response, 403, { error: "Invalid local UI write request." });
+        }
+        const body = await readJsonBody(request, MAX_PROJECT_SELECTION_BYTES);
+        const selection = selectProject(body && body.projectPath);
+        return writeJson(response, 200, {
+          structuredContent: { projectPath: selection.projectRoot, selectionToken: selection.token }
+        });
+      }
+      const selectedProjectRoot = projectForRequest(url.searchParams);
       if (request.method === "GET" && url.pathname === "/api/graph") {
-        const graph = buildRequirementWebGraph(projectRoot, graphOptions(url.searchParams));
+        const graph = buildRequirementWebGraph(selectedProjectRoot, graphOptions(url.searchParams));
         return writeJson(response, 200, { structuredContent: graph });
       }
       if (request.method === "GET" && url.pathname === "/api/documents") {
-        const documents = listRequirementDocuments(projectRoot, documentListOptions(url.searchParams));
+        const documents = listRequirementDocuments(selectedProjectRoot, documentListOptions(url.searchParams));
         return writeJson(response, 200, { structuredContent: documents });
       }
       if (request.method === "GET" && url.pathname === "/api/document") {
         const id = String(url.searchParams.get("id") || "").trim();
         if (!id) throw clientError("Document id is required.");
-        const document = readRequirementDocument(projectRoot, id, documentReadOptions(url.searchParams));
+        const document = readRequirementDocument(selectedProjectRoot, id, documentReadOptions(url.searchParams));
         if (!document) return writeJson(response, 404, { error: "Document not found." });
         return writeJson(response, 200, { structuredContent: document });
       }
       if (request.method === "GET" && url.pathname === "/api/map-view-state") {
-        return writeJson(response, 200, { structuredContent: { state: readMapViewState(projectRoot) } });
+        return writeJson(response, 200, { structuredContent: { state: readMapViewState(selectedProjectRoot) } });
       }
       if (request.method === "PUT" && url.pathname === "/api/map-view-state") {
         if (!requestMatchesOrigin(request, host) || request.headers["x-requirement-graph-token"] !== csrfToken) {
           return writeJson(response, 403, { error: "Invalid local UI write request." });
         }
-        const state = writeMapViewState(projectRoot, await readJsonBody(request, MAX_STATE_BYTES));
+        const state = writeMapViewState(selectedProjectRoot, await readJsonBody(request, MAX_STATE_BYTES));
         return writeJson(response, 200, { structuredContent: { state } });
       }
       if (request.method === "DELETE" && url.pathname === "/api/map-view-state") {
         if (!requestMatchesOrigin(request, host) || request.headers["x-requirement-graph-token"] !== csrfToken) {
           return writeJson(response, 403, { error: "Invalid local UI write request." });
         }
-        removeMapViewState(projectRoot);
+        removeMapViewState(selectedProjectRoot);
         return writeJson(response, 200, { structuredContent: { deleted: true } });
       }
       if (request.method === "POST" && url.pathname === "/api/sync") {
         if (!requestMatchesOrigin(request, host) || request.headers["x-requirement-graph-token"] !== csrfToken) {
           return writeJson(response, 403, { error: "Invalid local UI write request." });
         }
-        const graph = new RequirementGraph(graphDatabase);
+        const graph = new RequirementGraph(projectDbPath(selectedProjectRoot));
         try {
           return writeJson(response, 200, { structuredContent: syncImportedDocuments(graph) });
         } finally {
@@ -196,6 +265,8 @@ function createWebHandler(projectRoot, options = {}) {
       }
       const allowedMethods = {
         "/api/health": "GET",
+        "/api/projects": "GET",
+        "/api/project-selection": "POST",
         "/api/graph": "GET",
         "/api/documents": "GET",
         "/api/document": "GET",

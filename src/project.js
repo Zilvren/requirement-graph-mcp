@@ -2,11 +2,9 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
-// Central, per-user data home. Every project's graph database lives here,
-// keyed by the canonical project root it was created from, so a single MCP
-// registration can serve any number of repositories/folders by switching the
-// active project id. Override the location (tests, portable setups) with the
-// REQUIREMENT_GRAPH_HOME environment variable.
+// Per-user data holds the project registry, web-daemon state, and legacy
+// central graph databases. New graph databases live in their project root.
+// Override this location (tests, portable setups) with REQUIREMENT_GRAPH_HOME.
 function dataHome() {
   return path.resolve(process.env.REQUIREMENT_GRAPH_HOME || path.join(os.homedir(), ".requirement-graph"));
 }
@@ -34,20 +32,24 @@ function resolveProjectRoot(projectPath) {
   }
   try {
     // realpath collapses 8.3 short names, case differences and symlinks on
-    // Windows, so one directory always maps to exactly one central database.
+    // Windows, so one directory always maps to exactly one project-local database.
     return fs.realpathSync(base);
   } catch {
     return base;
   }
 }
 
-// Kept only for per-project state files that intentionally travel with a
-// project (for example the map-view-state UI preference); graph databases
-// themselves are central.
+// The graph database and per-project UI state intentionally travel with the
+// selected project directory.
 const DATA_DIRECTORY_NAME = ".requirement-graph";
+const PROJECT_DATABASE_FILE = "requirements-graph.db";
 
 function graphDirectory(projectPath) {
   return path.join(resolveProjectRoot(projectPath), DATA_DIRECTORY_NAME);
+}
+
+function localProjectDbPath(projectPath) {
+  return path.join(graphDirectory(projectPath), PROJECT_DATABASE_FILE);
 }
 
 const GITIGNORE_MARKER = "# Requirement Graph data files — local to each machine, not for committing.";
@@ -82,11 +84,13 @@ module.exports = {
   DATA_DIRECTORY_NAME,
   GENERATED_GITIGNORE,
   GITIGNORE_MARKER,
+  PROJECT_DATABASE_FILE,
   centralDbPath,
   dataHome,
   encodeRoot,
   ensureGraphGitignore,
   graphDirectory,
+  localProjectDbPath,
   registryFile,
   resolveProjectRoot
 };

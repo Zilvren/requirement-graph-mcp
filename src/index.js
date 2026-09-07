@@ -28,8 +28,8 @@ function usage() {
     "  web stop [project-path] [--project project-path|id]  stop the project's persistent web UI daemon",
     "  serve --web [project-path] [--project project-path|id] [--port port] [--host 127.0.0.1]",
     "",
-    "Graph databases are stored centrally under the user data directory",
-    "(REQUIREMENT_GRAPH_HOME or ~/.requirement-graph), keyed by project root."
+    "Graph databases are stored in <project>/.requirement-graph/requirements-graph.db.",
+    "Older central databases under REQUIREMENT_GRAPH_HOME remain readable when no local graph exists."
   ].join("\n") + "\n");
 }
 
@@ -113,7 +113,7 @@ async function main() {
     throw new Error("Choose either --mcp or --web, not both.");
   }
   if (command === "ui" || command === "web" || (command === "serve" && args.includes("--web"))) {
-    if (database) throw new Error("The web UI uses the central per-project database; --db is not supported.");
+    if (database) throw new Error("The web UI reads the selected project's database; --db is not supported.");
     const projectPath = projectRootOption(args, firstPositional(args));
     const instance = await startWebServer(projectPath, {
       host: option(args, "--host"),

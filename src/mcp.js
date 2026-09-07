@@ -19,7 +19,7 @@ const decompositionPolicy = [
 ].join(" ");
 
 const serverInstructions = [
-  "Use this local Requirement Graph automatically for requirements, documents, traceability, dependencies, and change impact. The server has one active project at a time; every project's graph data is stored centrally under the user data directory, keyed by that project's directory.",
+  "Use this local Requirement Graph automatically for requirements, documents, traceability, dependencies, and change impact. The server has one active project at a time; its graph data is stored at <project>/.requirement-graph/requirements-graph.db. An older central database is used only as a compatibility fallback when that local graph does not exist.",
   "At the start of a conversation, or whenever the user switches context, call requirement_graph_use_project with the absolute directory path of the project being discussed (it registers the directory on first use). Never ask the user to configure MCP, set a working directory, or pass a project path on every tool call: after requirement_graph_use_project every other tool acts on that project, and requirement_graph_list_projects lists already-registered projects.",
   "For view-only requests, call requirement_graph_open_web and open or return its localhost URL. Viewing never requires import, sync, or replacement. The standalone webpage is the only rendering surface and shows only Requirement Graph data; ordinary Markdown REFERENCES are weak citations, not confirmed dependencies.",
   "For an explicit import or refresh request, use requirement_graph_import or requirement_graph_sync respectively. These index sources and explicit links only, not semantic decomposition.",
@@ -84,7 +84,7 @@ const tools = [
   tool("requirement_graph_trace", "Follow dependencies or traceability links from a node.", { id: { type: "string" }, direction: { type: "string", enum: ["outgoing", "incoming"] }, depth: { type: "number" }, ...projectProperty }, ["id"]),
   tool("requirement_graph_impact", "Find nodes that may be impacted when a requirement changes.", { id: { type: "string" }, depth: { type: "number" }, ...projectProperty }, ["id"]),
   tool("requirement_graph_unlinked", "List imported nodes that are not connected to any other node.", projectProperty, []),
-  tool("requirement_graph_stats", "Return graph counts and the central database location of the active project.", projectProperty, []),
+  tool("requirement_graph_stats", "Return graph counts and the resolved database location of the active project.", projectProperty, []),
   tool("requirement_graph_open_web", "Start or reuse the active project's standalone local Requirement Graph webpage and return its loopback URL. View-only operation: do not import, sync, or regenerate the graph merely to open it.", projectProperty, [], "Open Requirement Graph web UI")
 ];
 
