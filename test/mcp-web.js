@@ -7,6 +7,7 @@ const readline = require("node:readline");
 const { RequirementGraph, projectDbPath } = require("../src/db");
 const { importPath } = require("../src/importer");
 const { decompositionPolicy } = require("../src/mcp");
+const { stopWebServer } = require("../src/web-daemon");
 
 function childExit(child) {
   return new Promise((resolve, reject) => {
@@ -140,6 +141,9 @@ async function main() {
     child = null;
     assert.equal(exited.signal, null, errors.join(""));
     assert.equal(exited.code, 0, errors.join(""));
+    // The web UI opened through MCP is a detached daemon on purpose: it must
+    // survive the MCP process. Stop it explicitly so the test leaves no orphan.
+    await stopWebServer(projectRoot);
   } finally {
     if (child) {
       child.stdin.end();

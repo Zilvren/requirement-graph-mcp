@@ -36,6 +36,6 @@
   },
   "homepage": "https://github.com/Steven-Qiang/requirement-graph-mcp",
   "scripts": {
-    "test": "node test/hierarchy.js && node test/smoke.js && node test/web.js && node test/web-ui.js && node test/mcp-web.js"
+    "test": "node test/hierarchy.js && node test/smoke.js && node test/web.js && node test/web-ui.js && node test/web-daemon.js && node test/mcp-web.js"
   }
 }

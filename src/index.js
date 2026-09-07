@@ -4,6 +4,7 @@ const { RequirementGraph, defaultDbPath, projectDbPath } = require("./db");
 const { importPath } = require("./importer");
 const { startMcpServer } = require("./mcp");
 const { startWebServer } = require("./web");
+const { stopWebServer } = require("./web-daemon");
 
 function option(args, name) {
   const index = args.indexOf(name);
@@ -21,6 +22,7 @@ function usage() {
     "  serve --mcp [--db path]",
     "  ui [project-path] [--project project-path] [--port port] [--host 127.0.0.1]",
     "  web [project-path] [--project project-path] [--port port] [--host 127.0.0.1]",
+    "  web stop [project-path] [--project project-path]  stop the project's persistent web UI daemon",
     "  serve --web [project-path] [--project project-path] [--port port] [--host 127.0.0.1]"
   ].join("\n") + "\n");
 }
@@ -49,6 +51,11 @@ async function main() {
   const database = option(args, "--db");
   if (args.includes("--help") || args.includes("-h")) {
     usage();
+    return;
+  }
+  if (command === "web" && args[1] === "stop") {
+    const projectPath = option(args, "--project") || args[2] || process.cwd();
+    process.stdout.write(JSON.stringify(await stopWebServer(projectPath), null, 2) + "\n");
     return;
   }
   if (command === "serve" && args.includes("--mcp") && args.includes("--web")) {

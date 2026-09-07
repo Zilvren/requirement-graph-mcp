@@ -149,6 +149,24 @@ requirement-graph serve --web --project D:\Work\my-app
 指定的项目，不接受网页请求提供其他项目路径。点击“重新识别关系”会写入该项目的本地
 `.requirement-graph` 数据库，按 `Ctrl+C` 停止服务。
 
+#### 持久化：网页服务不再随 Codex 会话掉线
+
+通过 Codex（MCP）调用 `requirement_graph_open_web` 打开的网页，是一个**独立的后台守护进程**，
+记录在项目的 `.requirement-graph\web-ui.json`。它不依附于 MCP 的 stdio 进程：关闭 Codex、
+结束会话或重启 Codex 都不会让已打开的图谱页掉线；下次会话再次打开时会先探测该记录的健康状态，
+若同一项目的服务仍在运行就直接复用同一个地址（返回 `reused: true`），不会端口漂移。
+
+停止某项目持久化的网页服务：
+
+~~~powershell
+requirement-graph web stop D:\Work\my-app
+# 或
+requirement-graph web stop --project D:\Work\my-app
+~~~
+
+命令行直接前台运行 `requirement-graph ui`（或 `serve --web`）仍是交互模式，按 `Ctrl+C` 停止；
+它与 MCP 打开的持久化服务使用同一套只绑定回环地址的网页实现，互不冲突。
+
 ## 接入 Codex MCP
 
 先将本项目放到一个固定位置（例如克隆或解压到 `C:\tools\requirement-graph-mcp`），
@@ -266,13 +284,14 @@ args = ["serve", "--mcp"]
 ~~~powershell
 npm test
 # 等价于：
-node test/hierarchy.js && node test/smoke.js && node test/web.js && node test/web-ui.js && node test/mcp-web.js
+node test/hierarchy.js && node test/smoke.js && node test/web.js && node test/web-ui.js && node test/web-daemon.js && node test/mcp-web.js
 ~~~
 
 - `test/smoke.js` — 导入/查询冒烟
 - `test/hierarchy.js` — 层级与关系
 - `test/web.js` — 网页服务
 - `test/web-ui.js` — 网页界面
+- `test/web-daemon.js` — 持久化网页守护进程（启动/复用/停止）
 - `test/mcp-web.js` — MCP 与网页联动
 
 GitHub Actions 已在 Node 22 上运行整套测试（见 `.github/workflows/test.yml`）。
@@ -291,6 +310,7 @@ requirement-graph-mcp/
 │   ├── project.js               # 项目根目录与数据库定位
 │   ├── mcp.js                   # MCP 服务
 │   ├── web.js / web-ui.js       # 本地网页服务
+│   ├── web-daemon.js            # 持久化网页守护进程（启动/复用/停止）
 │   └── requirement-*.js         # 图谱、层级、网页文档与图数据
 ├── test/                        # 无依赖自包含测试
 ├── package.json

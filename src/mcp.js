@@ -3,7 +3,7 @@ const { RequirementGraph, projectDbPath } = require("./db");
 const { importPath, syncImportedDocuments } = require("./importer");
 const { applyStructuredGraph } = require("./generated-graph");
 const { resolveProjectRoot } = require("./project");
-const { startWebServer } = require("./web");
+const { ensureWebServer } = require("./web-daemon");
 
 // Shared generation policy; tool descriptions below describe only their operation.
 const decompositionPolicy = [
@@ -81,7 +81,6 @@ function textResult(value) {
 
 function startMcpServer(databasePath) {
   const graphs = new Map();
-  const webUIs = new Map();
   const fallbackDatabase = databasePath || null;
   const graphFor = (args, allowImportPath = false) => {
     const projectPath = args.project_path || (allowImportPath ? args.path : null);
@@ -126,11 +125,10 @@ function startMcpServer(databasePath) {
           case "requirement_graph_unlinked": value = graphFor(args).unlinked(); break;
           case "requirement_graph_stats": value = graphFor(args).stats(); break;
           case "requirement_graph_open_web": {
-            const projectRoot = resolveProjectRoot(args.project_path);
-            const existing = webUIs.get(projectRoot);
-            const instance = existing || await startWebServer(projectRoot);
-            if (!existing) webUIs.set(projectRoot, instance);
-            value = { url: instance.url, project_path: instance.projectRoot, reused: Boolean(existing) };
+            // The web UI runs as a detached per-project daemon, so it stays up
+            // after this MCP process (and the Codex session owning it) exits.
+            // A later session reconnects to the same URL instead of restarting.
+            value = await ensureWebServer(resolveProjectRoot(args.project_path));
             break;
           }
           default: return fail(request.id, -32602, "Unknown tool: " + request.params.name);
@@ -146,7 +144,6 @@ function startMcpServer(databasePath) {
   });
   input.on("close", () => {
     for (const graph of graphs.values()) graph.close();
-    for (const webUi of webUIs.values()) void webUi.close().catch(() => {});
   });
 }
 

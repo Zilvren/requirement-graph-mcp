@@ -155,6 +155,26 @@ It is pinned to the project given at startup and refuses web requests for other 
 Clicking “re-identify relations” writes to that project’s local `.requirement-graph` database.
 Press `Ctrl+C` to stop.
 
+#### Persistent: the web page no longer drops when a Codex session ends
+
+When opened through Codex (MCP) via `requirement_graph_open_web`, the web page is served by an
+**independent background daemon**, recorded in the project’s `.requirement-graph\web-ui.json`. It is
+not tied to the MCP stdio process: closing Codex, ending a session, or restarting Codex does not take
+an already-opened graph page offline. The next session first probes the recorded daemon for health and,
+when the same project is still served, reuses the exact same URL (returns `reused: true`) instead of
+drifting to another port.
+
+Stop a project’s persistent web UI with:
+
+~~~powershell
+requirement-graph web stop D:\Work\my-app
+# or
+requirement-graph web stop --project D:\Work\my-app
+~~~
+
+Running `requirement-graph ui` (or `serve --web`) directly in a terminal remains interactive and stops
+with `Ctrl+C`; it shares the same loopback-only web implementation as the MCP daemon without conflict.
+
 ## Codex MCP integration
 
 Keep this repository at a fixed location (e.g. cloned to `C:\tools\requirement-graph-mcp`), then add
@@ -288,13 +308,14 @@ Self-contained tests with no third-party dependencies (run all of them with `npm
 ~~~powershell
 npm test
 # equivalent to:
-node test/hierarchy.js && node test/smoke.js && node test/web.js && node test/web-ui.js && node test/mcp-web.js
+node test/hierarchy.js && node test/smoke.js && node test/web.js && node test/web-ui.js && node test/web-daemon.js && node test/mcp-web.js
 ~~~
 
 - `test/smoke.js` — import/query smoke test
 - `test/hierarchy.js` — layers and relations
 - `test/web.js` — web server
 - `test/web-ui.js` — web UI
+- `test/web-daemon.js` — persistent web-UI daemon (start / reuse / stop)
 - `test/mcp-web.js` — MCP and web interplay
 
 GitHub Actions runs the full suite on Node 22 (see `.github/workflows/test.yml`).
@@ -313,6 +334,7 @@ requirement-graph-mcp/
 │   ├── project.js               # project root and database resolution
 │   ├── mcp.js                   # MCP server
 │   ├── web.js / web-ui.js       # local web server
+│   ├── web-daemon.js            # persistent web-UI daemon (start / reuse / stop)
 │   └── requirement-*.js         # graph, layers, web documents and graph data
 ├── test/                        # dependency-free self-contained tests
 ├── package.json

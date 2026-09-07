@@ -127,7 +127,7 @@ function createWebHandler(projectRoot, options = {}) {
         return writeHtml(response, webUiHtml({ projectPath: projectRoot, csrfToken }));
       }
       if (request.method === "GET" && url.pathname === "/api/health") {
-        return writeJson(response, 200, { ok: true });
+        return writeJson(response, 200, { ok: true, project: projectRoot });
       }
       if (request.method === "GET" && url.pathname === "/api/graph") {
         const graph = buildRequirementWebGraph(projectRoot, graphOptions(url.searchParams));
@@ -253,6 +253,7 @@ async function startWebServer(projectPath, options = {}) {
 module.exports = {
   DEFAULT_UI_HOST,
   DEFAULT_UI_PORT,
+  MAX_AUTOMATIC_PORT_TRIES,
   createWebHandler,
   createWebServer,
   normalizeHost,
