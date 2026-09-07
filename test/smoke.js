@@ -6,18 +6,20 @@ const { DatabaseSync } = require("node:sqlite");
 const { RequirementGraph, projectDbPath } = require("../src/db");
 const { importPath, syncImportedDocuments } = require("../src/importer");
 const { applyStructuredGraph } = require("../src/generated-graph");
-const { GENERATED_GITIGNORE, GITIGNORE_MARKER } = require("../src/project");
 const { buildRequirementWebGraph } = require("../src/requirement-web-graph");
 const { serverInstructions, tools } = require("../src/mcp");
 
 assert.match(serverInstructions, /automatically/);
-assert.match(serverInstructions, /active project root/);
+assert.match(serverInstructions, /requirement_graph_use_project/);
 assert.match(serverInstructions, /requirement_graph_open_web/);
 assert.doesNotMatch(serverInstructions, /render_canvas|MCP App|CodeGraph/i);
 assert.ok(tools.some((tool) => tool.name === "requirement_graph_open_web"));
+assert.ok(tools.some((tool) => tool.name === "requirement_graph_use_project"));
+assert.ok(tools.some((tool) => tool.name === "requirement_graph_list_projects"));
 assert.ok(!tools.some((tool) => tool.name === "requirement_graph_render_canvas"));
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "requirement-graph-"));
+process.env.REQUIREMENT_GRAPH_HOME = path.join(temp, "rg-home");
 try {
   const examplePath = path.resolve(__dirname, "../examples/requirements");
   const database = path.join(temp, "graph.db");
@@ -127,15 +129,34 @@ try {
   assert.equal(semanticGraph.context("CHILD").outgoing.length, 0);
   semanticGraph.close();
 
-  const initializedProject = path.join(temp, "initialized-project");
-  let initializedGraph = new RequirementGraph(projectDbPath(initializedProject));
-  initializedGraph.close();
-  const generatedIgnore = path.join(initializedProject, ".requirement-graph", ".gitignore");
-  assert.equal(fs.readFileSync(generatedIgnore, "utf8"), GENERATED_GITIGNORE);
-  fs.writeFileSync(generatedIgnore, GITIGNORE_MARKER + "\n!.gitignore\n", "utf8");
-  initializedGraph = new RequirementGraph(projectDbPath(initializedProject));
-  initializedGraph.close();
-  assert.equal(fs.readFileSync(generatedIgnore, "utf8"), GENERATED_GITIGNORE);
+  // Registry: projects are registered by directory, switched by id, and all
+  // graph data lives centrally under REQUIREMENT_GRAPH_HOME (never inside the
+  // project directory).
+  const { activeProject, listProjects, registerProject, removeProject, resolveProject, setActiveProject } = require("../src/registry");
+  const projectA = path.join(temp, "project-a");
+  const projectB = path.join(temp, "project-b");
+  fs.mkdirSync(projectA, { recursive: true });
+  fs.mkdirSync(projectB, { recursive: true });
+  const registeredA = registerProject(projectA);
+  assert.equal(registeredA.registered, true);
+  assert.equal(registeredA.id, "project-a");
+  assert.equal(registerProject(projectB).id, "project-b");
+  const againA = registerProject(projectA);
+  assert.equal(againA.registered, false, "re-registering the same directory is idempotent");
+  assert.equal(againA.id, "project-a");
+  assert.deepEqual(listProjects().map((p) => p.id).sort(), ["project-a", "project-b"]);
+  assert.equal(resolveProject("project-b").root, projectB);
+  assert.equal(resolveProject(projectA).root, projectA);
+  const switched = setActiveProject("project-a");
+  assert.equal(switched.id, "project-a");
+  assert.equal(activeProject().id, "project-a");
+  removeProject("project-b");
+  assert.deepEqual(listProjects().map((p) => p.id), ["project-a"]);
+
+  // No per-project data directory is ever created inside a project root.
+  const projectDb = projectDbPath(projectA);
+  assert.match(projectDb, new RegExp(process.env.REQUIREMENT_GRAPH_HOME.replace(/[\\/]/g, "\\$&")));
+  assert.equal(fs.existsSync(path.join(projectA, ".requirement-graph")), false);
 
   const frontmatterProject = path.join(temp, "frontmatter-project");
   fs.mkdirSync(frontmatterProject, { recursive: true });

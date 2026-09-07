@@ -1,20 +1,22 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { DatabaseSync } = require("node:sqlite");
-const { ensureGraphGitignore, graphDirectory } = require("./project");
+const { centralDbPath } = require("./project");
 
 function defaultDbPath() {
-  return path.join(graphDirectory(process.cwd()), "requirements-graph.db");
+  return centralDbPath(process.cwd());
 }
 
+// All graph data is stored centrally under the user data home, keyed by the
+// canonical project root. A "project" is the directory whose documents were
+// imported; switching projects means switching roots, never the installation.
 function projectDbPath(projectPath) {
-  return path.join(graphDirectory(projectPath), "requirements-graph.db");
+  return centralDbPath(projectPath);
 }
 
 function ensureParent(file) {
   const directory = path.dirname(path.resolve(file));
   fs.mkdirSync(directory, { recursive: true });
-  ensureGraphGitignore(directory);
 }
 
 function escapeLike(value) {

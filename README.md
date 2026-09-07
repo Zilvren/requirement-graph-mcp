@@ -37,8 +37,10 @@ Requirement Graph MCP 是一个 **完全本地运行** 的个人需求与文档�
 - 通过 MCP 协议接入 Codex，让 AI 在问答时自动查询需求上下文、依赖与影响范围；
 - 提供一个本地网页（关系地图 + 节点阅读）作为**唯一推荐的图谱可视化入口**。
 
-每个项目使用自己的数据库：项目根目录下的 `.requirement-graph\requirements-graph.db`。
-不同项目的数据不会混在一起；除你主动运行的本地网页外，没有任何内容会离开你的机器。
+每个项目使用自己的数据库，**集中存放在用户数据目录**（默认 `~/.requirement-graph`，可用环境变量
+`REQUIREMENT_GRAPH_HOME` 覆盖），按项目目录一一对应。项目目录本身不会被写入任何隐藏目录。
+切换项目就是切换一个 project id（见下文「多项目与切换」）；不同项目的数据不会混在一起。
+除你主动运行的本地网页外，没有任何内容会离开你的机器。
 
 ## 核心特性
 
@@ -120,15 +122,25 @@ npx requirement-graph-mcp status
 # 等价写法：npx -p requirement-graph-mcp requirement-graph <命令>
 ~~~
 
-- `init` 会在当前项目创建 `.requirement-graph\requirements-graph.db`；首次 `import` 也会自动创建它。
-  `init` 的用途是显式建立项目图谱并确认位置。
-- 命令可传 `--project` 指定项目根目录，或传 `--db` 使用自定义数据库路径。
+- `init` 会在**用户数据目录**里为当前项目创建对应的数据库（`.db` 按项目目录编码命名）；
+  首次 `import` 也会自动创建它。项目目录本身保持干净。
+- 命令可传 `--project`（目录路径或已登记的 id）指定项目，或传 `--db` 使用自定义数据库路径。
 
-状态目录内会自动生成 `.requirement-graph\.gitignore`，忽略数据库、WAL、缓存与未来本地状态文件，
-只保留这条忽略规则本身。工具不会修改项目根目录的 `.gitignore`；如果你手动改写状态目录中的
-`.gitignore`，工具也不会覆盖你的版本。
+### 多项目与切换（project id）
 
-MCP 模式不使用全局数据库：内部会用当前项目根目录定位图谱，因此不同项目的数据不会混在一起。
+任意目录（独立仓库、monorepo 根、某个子目录）都可以登记为一个“项目”，并得到一个人类可读的 id：
+
+~~~powershell
+requirement-graph project add D:\Work\repo-a        # id 默认取目录名
+requirement-graph project add D:\Work\repo-b
+requirement-graph project list                       # 查看 id / root / active
+requirement-graph project use repo-b                 # 切换默认项目（影响 CLI 与后续 MCP 会话）
+requirement-graph status --project repo-a            # 或每次调用显式指定
+~~~
+
+MCP 里同理：会话开始时让 Codex 调用一次 `requirement_graph_use_project`（传入项目目录或 id），
+之后所有工具都作用于该项目；`requirement_graph_list_projects` 列出已登记项目。
+这样在多个仓库/文件夹之间切换只需要换 id，无需每项目配置 MCP 或设置工作目录。
 
 ## 本地网页版
 
@@ -143,8 +155,8 @@ npx requirement-graph-mcp ui D:\Work\my-app
 ~~~
 
 命令会打印一个本地地址，例如 `http://127.0.0.1:4747/`。默认从 4747 开始；端口已被
-占用时会自动尝试后续端口。这是**唯一推荐的图谱可视化入口**：只读取同一项目下的
-`.requirement-graph\requirements-graph.db`，提供“关系地图”和“节点阅读”两个视图；
+占用时会自动尝试后续端口。这是**唯一推荐的图谱可视化入口**：只读取用户数据目录中
+该项目的数据库，提供“关系地图”和“节点阅读”两个视图；
 节点阅读页列出需求节点，直接显示节点正文及其已记录的原文证据。
 
 可选参数：
@@ -158,13 +170,13 @@ requirement-graph serve --web --project D:\Work\my-app
 ~~~
 
 网页服务只允许绑定 `127.0.0.1`、`::1` 或 `localhost`，不会监听局域网地址；它固定到启动时
-指定的项目，不接受网页请求提供其他项目路径。点击“重新识别关系”会写入该项目的本地
-`.requirement-graph` 数据库，按 `Ctrl+C` 停止服务。
+指定的项目，不接受网页请求提供其他项目路径。点击“重新识别关系”会写入该项目的数据库，
+按 `Ctrl+C` 停止服务。
 
 #### 持久化：网页服务不再随 Codex 会话掉线
 
 通过 Codex（MCP）调用 `requirement_graph_open_web` 打开的网页，是一个**独立的后台守护进程**，
-记录在项目的 `.requirement-graph\web-ui.json`。它不依附于 MCP 的 stdio 进程：关闭 Codex、
+运行状态记录在用户数据目录（`web-ui/<项目编码>.json`）。它不依附于 MCP 的 stdio 进程：关闭 Codex、
 结束会话或重启 Codex 都不会让已打开的图谱页掉线；下次会话再次打开时会先探测该记录的健康状态，
 若同一项目的服务仍在运行就直接复用同一个地址（返回 `reused: true`），不会端口漂移。
 
@@ -196,13 +208,14 @@ args = ["serve", "--mcp"]
 ~~~
 
 重启 Codex 后，它会显示为可用 MCP。服务会主动告诉 Codex：在需求、文档、依赖和影响分析问题中
-自动使用图谱，并把当前项目根目录作为图谱位置。你不需要写 MCP 名称、工具名或 `project_path`，
-只需正常提问：
+自动使用图谱；**会话开始时先调用一次 `requirement_graph_use_project`**（传正在讨论的项目目录），
+之后你不需要写 MCP 名称、工具名或任何路径，只需正常提问：
 
 - “把当前项目 D:\Work\my-app 的 docs\requirements 导入需求图谱。”
 - “查询 D:\Work\my-app 中 REQ-AUTH-001 的需求上下文与直接依赖。”
 - “D:\Work\my-app 的 REQ-AUTH-002 变更会影响什么？”
 - “找出 D:\Work\my-app 中没有关联的需求。”
+- “切到 repo-b 的需求图。” → Codex 会再次调用 `requirement_graph_use_project`
 
 斜杠命令 `/mcp` 只打开连接状态，不是手工点选工具的面板。日常使用只需自然语言，无需编写任何调用语法。
 
@@ -214,7 +227,7 @@ localhost 地址。关系地图可缩放、拖拽、搜索，点击节点可查�
 
 网页的数据范围固定为：
 
-- **Requirement Graph**：只读取项目中的 `.requirement-graph\requirements-graph.db`；
+- **Requirement Graph**：只读取用户数据目录中该项目的数据库；
 - 不读取外部代码索引，也不显示代码符号、文件、模块或代码关系图层。
 
 网页默认只显示 `depends_on`、`implements`、`validates`、`parent` 等结构关系。
@@ -320,8 +333,9 @@ requirement-graph-mcp/
 │   ├── index.js                 # 入口：init / import / status / serve / ui
 │   ├── db.js                    # SQLite 数据库封装
 │   ├── importer.js              # Markdown/TXT/JSON/CSV 导入
-│   ├── project.js               # 项目根目录与数据库定位
-│   ├── mcp.js                   # MCP 服务
+│   ├── project.js               # 用户数据目录与中央数据库定位（realpath 规范化）
+│   ├── registry.js              # 项目登记表：projectId ↔ 根目录、切换
+│   ├── mcp.js                   # MCP 服务（use_project 切换项目）
 │   ├── web.js / web-ui.js       # 本地网页服务
 │   ├── web-daemon.js            # 持久化网页守护进程（启动/复用/停止）
 │   └── requirement-*.js         # 图谱、层级、网页文档与图数据

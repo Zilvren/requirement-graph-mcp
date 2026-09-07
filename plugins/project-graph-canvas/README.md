@@ -17,9 +17,10 @@ existing requirement_graph_* data tools and when to call
 requirement_graph_open_web. That tool starts or reuses a loopback-only local
 web server and returns its URL; Codex can open that URL in its browser.
 
-The webpage is the visual entry point. It reads only the current project's
-.requirement-graph directory and does not load any external code index.
-Installing or removing this plugin never starts a second MCP server.
+The webpage is the visual entry point. It reads only the active project's
+Requirement Graph data (stored centrally under the user data directory) and
+does not load any external code index. Installing or removing this plugin never
+starts a second MCP server.
 
-Neither component uploads project data: each graph remains in the current
-project's .requirement-graph directory.
+Neither component uploads project data: each project's graph stays local in the
+user data directory, keyed by that project's directory.

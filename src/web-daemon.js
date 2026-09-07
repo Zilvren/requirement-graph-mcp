@@ -2,15 +2,15 @@ const fs = require("node:fs");
 const http = require("node:http");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
-const { graphDirectory, resolveProjectRoot } = require("./project");
+const { dataHome, encodeRoot, resolveProjectRoot } = require("./project");
 const { DEFAULT_UI_HOST, DEFAULT_UI_PORT, MAX_AUTOMATIC_PORT_TRIES } = require("./web");
 
 // A per-project persistent web UI. The MCP stdio process dies with the Codex
 // session, so an in-process HTTP server cannot outlive the session. This module
 // runs the existing `serve --web` server as a detached background process and
-// records it in <project>/.requirement-graph/web-ui.json. Later sessions probe
-// that record's health and reuse the still-running server instead of restarting
-// it, which keeps an already opened graph page from going offline.
+// records it under the central data home as web-ui/<encoded root>.json. Later
+// sessions probe that record's health and reuse the still-running server
+// instead of restarting it, which keeps an opened graph page from going offline.
 
 const STATE_FILE_NAME = "web-ui.json";
 const HEALTH_PATH = "/api/health";
@@ -23,7 +23,7 @@ function sleep(milliseconds) {
 }
 
 function daemonStatePath(projectRoot) {
-  return path.join(graphDirectory(projectRoot), STATE_FILE_NAME);
+  return path.join(dataHome(), "web-ui", encodeRoot(projectRoot) + ".json");
 }
 
 function readDaemonState(projectRoot) {
@@ -37,7 +37,7 @@ function readDaemonState(projectRoot) {
 }
 
 function writeDaemonState(projectRoot, info) {
-  fs.mkdirSync(graphDirectory(projectRoot), { recursive: true });
+  fs.mkdirSync(path.dirname(daemonStatePath(projectRoot)), { recursive: true });
   fs.writeFileSync(
     daemonStatePath(projectRoot),
     JSON.stringify({ ...info, saved_at: new Date().toISOString() }, null, 2) + "\n",

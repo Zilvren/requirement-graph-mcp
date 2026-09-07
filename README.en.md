@@ -38,9 +38,11 @@ Requirement Graph MCP is a **fully local** requirement & document graph tool tha
 - exposes the graph over MCP so Codex can answer requirement, dependency and impact questions;
 - provides a local web page (relation map + document reader) as the **only recommended graph visualisation**.
 
-Every project owns its own database at `.requirement-graph\requirements-graph.db` under the project
-root, so data never mixes across projects. Nothing leaves your machine except the local web page
-you run yourself.
+Every project owns its own database, stored **centrally in the user data directory** (default
+`~/.requirement-graph`, override with the `REQUIREMENT_GRAPH_HOME` environment variable) and keyed by
+the project directory. No hidden directory is ever written inside a project. Switching projects means
+switching a project id (see “Multiple projects & switching” below); data never mixes across projects.
+Nothing leaves your machine except the local web page you run yourself.
 
 ## Key features
 
@@ -124,16 +126,29 @@ npx requirement-graph-mcp status
 # equivalent: npx -p requirement-graph-mcp requirement-graph <command>
 ~~~
 
-- `init` creates `.requirement-graph\requirements-graph.db` in the current project; the first
-  `import` also creates it automatically. `init` exists to explicitly set up and confirm the location.
-- Commands accept `--project` for the project root or `--db` for a custom database path.
+- `init` creates the central database entry for the current project in the **user data directory**
+  (files are named after an encoding of the project directory); the first `import` also creates it.
+  The project directory itself stays clean.
+- Commands accept `--project` (a directory path or a registered id) or `--db` for a custom database path.
 
-The state directory auto-generates a `.requirement-graph\.gitignore` that ignores the database, WAL,
-caches and future local state files while keeping only that ignore rule itself. The tool never touches
-your project-root `.gitignore`; hand-edited state-directory `.gitignore` files are never overwritten.
+### Multiple projects & switching (project ids)
 
-MCP mode does not use a global database: it locates the graph from the current project root, so data
-never mixes between projects.
+Any directory — a standalone repo, a monorepo root, or one of its subfolders — can be registered as a
+“project” and gets a human-readable id:
+
+~~~powershell
+requirement-graph project add D:\Work\repo-a        # id defaults to the folder name
+requirement-graph project add D:\Work\repo-b
+requirement-graph project list                       # ids / roots / active
+requirement-graph project use repo-b                 # switch the default project
+requirement-graph status --project repo-a            # or pick one per invocation
+~~~
+
+Inside Codex (MCP) the same switching is one call: the server instructs Codex to invoke
+`requirement_graph_use_project` once with the project directory or id at the start of the session, after
+which every tool acts on that project; `requirement_graph_list_projects` lists registered projects. So
+moving between several repositories/folders is just switching an id — no per-project MCP configuration
+and no working-directory setup.
 
 ## Local web UI
 
@@ -149,7 +164,7 @@ npx requirement-graph-mcp ui D:\Work\my-app
 
 The command prints a local address such as `http://127.0.0.1:4747/`. It starts at 4747 and tries the
 next free port if occupied. This is the **only recommended graph visualisation**: it reads only the
-`.requirement-graph\requirements-graph.db` of the same project and offers two views — the relation
+central database of the selected project and offers two views — the relation
 map and the node reader, which lists requirement nodes with their body text and recorded source evidence.
 
 Optional arguments:
@@ -164,13 +179,13 @@ requirement-graph serve --web --project D:\Work\my-app
 
 The web server only binds to `127.0.0.1`, `::1` or `localhost` — it never listens on LAN interfaces.
 It is pinned to the project given at startup and refuses web requests for other project paths.
-Clicking “re-identify relations” writes to that project’s local `.requirement-graph` database.
+Clicking “re-identify relations” writes to that project’s database.
 Press `Ctrl+C` to stop.
 
 #### Persistent: the web page no longer drops when a Codex session ends
 
 When opened through Codex (MCP) via `requirement_graph_open_web`, the web page is served by an
-**independent background daemon**, recorded in the project’s `.requirement-graph\web-ui.json`. It is
+**independent background daemon**, recorded in the user data directory (`web-ui/<encoded root>.json`). It is
 not tied to the MCP stdio process: closing Codex, ending a session, or restarting Codex does not take
 an already-opened graph page offline. The next session first probes the recorded daemon for health and,
 when the same project is still served, reuses the exact same URL (returns `reused: true`) instead of
@@ -205,8 +220,9 @@ args = ["serve", "--mcp"]
 ~~~
 
 After restarting Codex, it shows up as an available MCP. The server tells Codex to automatically use
-the graph for requirement, document, dependency and impact-analysis questions and to take the current
-project root as the graph location. You never need to name the MCP, its tools or `project_path` — just
+the graph for requirement, document, dependency and impact-analysis questions and to call
+`requirement_graph_use_project` once with the project directory at the start of the session (switching
+is another call to the same tool). You never need to name the MCP, its tools or a project path — just
 ask in plain language:
 
 - “Import D:\Work\my-app\docs\requirements into the requirement graph.”
@@ -226,7 +242,7 @@ split body text and recorded source-evidence excerpts.
 
 The web page’s data scope is fixed:
 
-- **Requirement Graph only**: reads `.requirement-graph\requirements-graph.db` of the project.
+- **Requirement Graph only**: reads the central database of the active project.
 - It does **not** read external code indexes or show code symbols, files, modules or code-relation layers.
 
 The page shows structural relations such as `depends_on`, `implements`, `validates` and `parent` by
@@ -345,8 +361,9 @@ requirement-graph-mcp/
 │   ├── index.js                 # entry: init / import / status / serve / ui
 │   ├── db.js                    # SQLite database wrapper
 │   ├── importer.js              # Markdown/TXT/JSON/CSV import
-│   ├── project.js               # project root and database resolution
-│   ├── mcp.js                   # MCP server
+│   ├── project.js               # user data home & central database resolution (realpath)
+│   ├── registry.js              # project registry: projectId ↔ root, switching
+│   ├── mcp.js                   # MCP server (use_project switches projects)
 │   ├── web.js / web-ui.js       # local web server
 │   ├── web-daemon.js            # persistent web-UI daemon (start / reuse / stop)
 │   └── requirement-*.js         # graph, layers, web documents and graph data

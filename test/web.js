@@ -44,6 +44,7 @@ async function main() {
   assert.match(configuredPage, /function layoutHierarchy/);
 
   const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), "requirement-graph-web-"));
+  process.env.REQUIREMENT_GRAPH_HOME = path.join(projectRoot, "rg-home");
   const documentPath = path.join(projectRoot, "requirement.md");
   const originalDocument = "---\nid: WEB-REQ\ntitle: Web requirement\n---\n# Web requirement\n\nA local web UI is available.\n\nOriginal body stays available to the document reader.\n";
   fs.writeFileSync(documentPath, originalDocument, "utf8");

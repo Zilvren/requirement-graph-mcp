@@ -212,6 +212,7 @@ async function testLayeredInteractions(html) {
 
 async function main() {
   const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), "requirement-graph-web-ui-"));
+  process.env.REQUIREMENT_GRAPH_HOME = path.join(projectRoot, "rg-home");
   try {
     const documentPath = path.join(projectRoot, "requirement.md");
     const originalDocument = "---\nid: WEB-ONLY\ntitle: Web-only requirement\n---\n# Web-only requirement\n\nThe UI must only use Requirement Graph data.\n";

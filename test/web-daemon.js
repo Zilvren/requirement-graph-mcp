@@ -17,6 +17,7 @@ async function reachable(url) {
 
 async function main() {
   const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), "requirement-graph-daemon-"));
+  process.env.REQUIREMENT_GRAPH_HOME = path.join(projectRoot, "rg-home");
   let running = false;
   try {
     const documentPath = path.join(projectRoot, "requirement.md");

@@ -18,6 +18,7 @@ function childExit(child) {
 
 async function main() {
   const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), "requirement-graph-mcp-web-"));
+  process.env.REQUIREMENT_GRAPH_HOME = path.join(projectRoot, "rg-home");
   let child;
   try {
     const documentPath = path.join(projectRoot, "requirement.md");
@@ -63,19 +64,30 @@ async function main() {
     const listed = await request("tools/list", {});
     const names = listed.result.tools.map((tool) => tool.name);
     assert.ok(names.includes("requirement_graph_open_web"));
+    assert.ok(names.includes("requirement_graph_use_project"));
+    assert.ok(names.includes("requirement_graph_list_projects"));
     assert.ok(!names.includes("requirement_graph_render_canvas"));
     assert.equal(new Set(names).size, names.length);
     const replaceTool = listed.result.tools.find((tool) => tool.name === "requirement_graph_replace");
-    assert.deepEqual(replaceTool.inputSchema.required, ["project_path", "source_description", "nodes", "edges"]);
+    assert.deepEqual(replaceTool.inputSchema.required, ["source_description", "nodes", "edges"]);
     const nodeProperties = replaceTool.inputSchema.properties.nodes.items.properties;
     assert.equal(nodeProperties.source_document_ids.type, "array");
     assert.equal(nodeProperties.body.type, "string");
     assert.equal(nodeProperties.metadata.type, "object");
     assert.ok(replaceTool.inputSchema.properties.edges.items.properties.relation_type.enum.includes("CHILD_OF"));
     const openTool = listed.result.tools.find((tool) => tool.name === "requirement_graph_open_web");
-    assert.deepEqual(openTool.inputSchema.required, ["project_path"]);
+    assert.deepEqual(openTool.inputSchema.required, []);
     const resources = await request("resources/list", {});
     assert.equal(resources.error.code, -32601);
+
+    // Activate the project once, then every other tool works without a path.
+    const activated = await request("tools/call", { name: "requirement_graph_use_project", arguments: { project_path: projectRoot } });
+    assert.equal(activated.error, undefined, JSON.stringify(activated.error));
+    assert.equal(JSON.parse(activated.result.content[0].text).active, true);
+    const statsNoPath = await request("tools/call", { name: "requirement_graph_stats", arguments: {} });
+    const statsResult = JSON.parse(statsNoPath.result.content[0].text);
+    assert.ok(statsResult.database.endsWith(".db"), "stats resolve the central database of the active project");
+    assert.ok(fs.existsSync(statsResult.database), "the active project database exists centrally");
 
     const opened = await request("tools/call", { name: "requirement_graph_open_web", arguments: { project_path: projectRoot } });
     const openResult = JSON.parse(opened.result.content[0].text);

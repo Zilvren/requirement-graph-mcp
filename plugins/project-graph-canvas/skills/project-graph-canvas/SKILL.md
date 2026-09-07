@@ -13,8 +13,10 @@ Graph database only; external code indexes are outside this workflow.
 
 ## Choose the operation
 
-Use the active project root as project_path; do not ask the user to supply tool
-names or call syntax.
+At the start of the conversation, activate the project being discussed by calling
+requirement_graph_use_project once with its directory path (switch later by calling it again).
+Every tool then acts on that project; do not ask the user to supply tool names, call syntax, or a
+project path on each call.
 
 - **View or open:** call requirement_graph_open_web and open or return its
   localhost URL. A view-only request does not authorize import, sync, or

@@ -3,8 +3,8 @@ const { version } = require("../package.json");
 const { RequirementGraph, projectDbPath } = require("./db");
 const { importPath, syncImportedDocuments } = require("./importer");
 const { applyStructuredGraph } = require("./generated-graph");
-const { resolveProjectRoot } = require("./project");
 const { ensureWebServer } = require("./web-daemon");
+const { activeProject, listProjects, resolveProject } = require("./registry");
 
 // Shared generation policy; tool descriptions below describe only their operation.
 const decompositionPolicy = [
@@ -16,17 +16,24 @@ const decompositionPolicy = [
 ].join(" ");
 
 const serverInstructions = [
-  "Use this local Requirement Graph automatically for requirements, documents, traceability, dependencies, and change impact, with the active project root as project_path; do not ask the user for tool names or that parameter.",
+  "Use this local Requirement Graph automatically for requirements, documents, traceability, dependencies, and change impact. The server has one active project at a time; every project's graph data is stored centrally under the user data directory, keyed by that project's directory.",
+  "At the start of a conversation, or whenever the user switches context, call requirement_graph_use_project with the absolute directory path of the project being discussed (it registers the directory on first use). Never ask the user to configure MCP, set a working directory, or pass a project path on every tool call: after requirement_graph_use_project every other tool acts on that project, and requirement_graph_list_projects lists already-registered projects.",
   "For view-only requests, call requirement_graph_open_web and open or return its localhost URL. Viewing never requires import, sync, or replacement. The standalone webpage is the only rendering surface and shows only Requirement Graph data; ordinary Markdown REFERENCES are weak citations, not confirmed dependencies.",
   "For an explicit import or refresh request, use requirement_graph_import or requirement_graph_sync respectively. These index sources and explicit links only, not semantic decomposition.",
   "For generation or regeneration from documents, import or refresh only the relevant sources, list them with requirement_graph_documents, and read each relevant source to EOF with requirement_graph_read_document. Analyze their meaning under the decomposition policy, then call requirement_graph_replace once with the complete graph before opening the webpage. Imported documents are evidence, not a completed requirement analysis. For natural-language generation, analyze the user's description directly; do not ask the user to author documents or raw JSON.",
   decompositionPolicy
 ].join(" ");
 
-const projectPathProperty = {
+// Optional everywhere: tools act on the active project unless the caller
+// explicitly overrides with project_path / project (a directory or an id).
+const projectProperty = {
   project_path: {
     type: "string",
-    description: "Absolute project root. Its graph is stored in .requirement-graph/requirements-graph.db."
+    description: "Optional override: an absolute directory path. Defaults to the project activated by requirement_graph_use_project."
+  },
+  project: {
+    type: "string",
+    description: "Optional override: a registered project id or directory path. Defaults to the project activated by requirement_graph_use_project."
   }
 };
 
@@ -62,18 +69,20 @@ const edgeSchema = {
 };
 
 const tools = [
-  tool("requirement_graph_import", "Index Markdown, TXT, JSON, or CSV source documents as coarse document or record nodes and extract only explicitly declared links. This does not semantically analyze text, split requirements, infer relationships, or complete a request to generate a requirement graph.", { path: { type: "string" }, ...projectPathProperty }, ["path"]),
-  tool("requirement_graph_documents", "List imported source documents without generated nodes. For a document-driven requirement-graph request, call this after import and then read every relevant result with requirement_graph_read_document before replacing the graph.", { offset: { type: "number", description: "Zero-based page offset." }, limit: { type: "number", description: "Documents per page, from 1 to 100." }, ...projectPathProperty }, ["project_path"]),
-  tool("requirement_graph_read_document", "Read a chunk of an imported source document's original content, including Markdown frontmatter. Pass the stable_id or source_path returned by requirement_graph_documents; repeat with next_offset until EOF before performing semantic requirement decomposition.", { id: { type: "string", description: "An imported document stable_id or source_path from requirement_graph_documents." }, offset: { type: "number", description: "Zero-based character offset." }, limit: { type: "number", description: "Characters to return, from 1 to 50000." }, ...projectPathProperty }, ["id", "project_path"]),
-  tool("requirement_graph_replace", "Replace only the prior Codex-generated layer with a complete, evidence-backed graph after source analysis. Follow the shared decomposition policy: scope -> capability -> coherent deliverable; keep validation details inside requirements. Imported documents are preserved and source_document_ids create DERIVES_FROM links. Not needed for viewing.", { ...projectPathProperty, graph_id: { type: "string", description: "Optional identifier retained with the generated graph provenance." }, source_description: { type: "string", description: "The user's requirement description and the analyzed source scope." }, nodes: { type: "array", items: nodeSchema }, edges: { type: "array", items: edgeSchema } }, ["project_path", "source_description", "nodes", "edges"]),
-  tool("requirement_graph_search", "Search requirement and document nodes by title, ID, or content.", { query: { type: "string" }, limit: { type: "number" }, ...projectPathProperty }, ["query", "project_path"]),
-  tool("requirement_graph_sync", "Re-import the documents already known to this project's Requirement Graph, refreshing explicit relationship extraction without scanning unrelated files.", projectPathProperty, ["project_path"]),
-  tool("requirement_graph_context", "Return a node, its metadata, and all direct incoming and outgoing relations.", { id: { type: "string" }, ...projectPathProperty }, ["id", "project_path"]),
-  tool("requirement_graph_trace", "Follow dependencies or traceability links from a node.", { id: { type: "string" }, direction: { type: "string", enum: ["outgoing", "incoming"] }, depth: { type: "number" }, ...projectPathProperty }, ["id", "project_path"]),
-  tool("requirement_graph_impact", "Find nodes that may be impacted when a requirement changes.", { id: { type: "string" }, depth: { type: "number" }, ...projectPathProperty }, ["id", "project_path"]),
-  tool("requirement_graph_unlinked", "List imported nodes that are not connected to any other node.", projectPathProperty, ["project_path"]),
-  tool("requirement_graph_stats", "Return local graph counts and database location.", projectPathProperty, ["project_path"]),
-  tool("requirement_graph_open_web", "Start or reuse this project's standalone local Requirement Graph webpage and return its loopback URL. View-only operation: do not import, sync, or regenerate the graph merely to open it.", projectPathProperty, ["project_path"], "Open Requirement Graph web UI")
+  tool("requirement_graph_use_project", "Activate a project for this session by absolute directory path or registered id; the directory is registered on first use. Call this once per conversation, then every other requirement_graph_* tool acts on this project without needing a project path.", { ...projectProperty }, []),
+  tool("requirement_graph_list_projects", "List registered projects (id, name, root directory) and the currently active project.", {}, []),
+  tool("requirement_graph_import", "Index Markdown, TXT, JSON, or CSV source documents as coarse document or record nodes and extract only explicitly declared links. This does not semantically analyze text, split requirements, infer relationships, or complete a request to generate a requirement graph.", { path: { type: "string" }, ...projectProperty }, ["path"]),
+  tool("requirement_graph_documents", "List imported source documents without generated nodes. For a document-driven requirement-graph request, call this after import and then read every relevant result with requirement_graph_read_document before replacing the graph.", { offset: { type: "number", description: "Zero-based page offset." }, limit: { type: "number", description: "Documents per page, from 1 to 100." }, ...projectProperty }, []),
+  tool("requirement_graph_read_document", "Read a chunk of an imported source document's original content, including Markdown frontmatter. Pass the stable_id or source_path returned by requirement_graph_documents; repeat with next_offset until EOF before performing semantic requirement decomposition.", { id: { type: "string", description: "An imported document stable_id or source_path from requirement_graph_documents." }, offset: { type: "number", description: "Zero-based character offset." }, limit: { type: "number", description: "Characters to return, from 1 to 50000." }, ...projectProperty }, ["id"]),
+  tool("requirement_graph_replace", "Replace only the prior Codex-generated layer with a complete, evidence-backed graph after source analysis. Follow the shared decomposition policy: scope -> capability -> coherent deliverable; keep validation details inside requirements. Imported documents are preserved and source_document_ids create DERIVES_FROM links. Not needed for viewing.", { ...projectProperty, graph_id: { type: "string", description: "Optional identifier retained with the generated graph provenance." }, source_description: { type: "string", description: "The user's requirement description and the analyzed source scope." }, nodes: { type: "array", items: nodeSchema }, edges: { type: "array", items: edgeSchema } }, ["source_description", "nodes", "edges"]),
+  tool("requirement_graph_search", "Search requirement and document nodes by title, ID, or content.", { query: { type: "string" }, limit: { type: "number" }, ...projectProperty }, ["query"]),
+  tool("requirement_graph_sync", "Re-import the documents already known to the active project's Requirement Graph, refreshing explicit relationship extraction without scanning unrelated files.", projectProperty, []),
+  tool("requirement_graph_context", "Return a node, its metadata, and all direct incoming and outgoing relations.", { id: { type: "string" }, ...projectProperty }, ["id"]),
+  tool("requirement_graph_trace", "Follow dependencies or traceability links from a node.", { id: { type: "string" }, direction: { type: "string", enum: ["outgoing", "incoming"] }, depth: { type: "number" }, ...projectProperty }, ["id"]),
+  tool("requirement_graph_impact", "Find nodes that may be impacted when a requirement changes.", { id: { type: "string" }, depth: { type: "number" }, ...projectProperty }, ["id"]),
+  tool("requirement_graph_unlinked", "List imported nodes that are not connected to any other node.", projectProperty, []),
+  tool("requirement_graph_stats", "Return graph counts and the central database location of the active project.", projectProperty, []),
+  tool("requirement_graph_open_web", "Start or reuse the active project's standalone local Requirement Graph webpage and return its loopback URL. View-only operation: do not import, sync, or regenerate the graph merely to open it.", projectProperty, [], "Open Requirement Graph web UI")
 ];
 
 function textResult(value) {
@@ -83,13 +92,45 @@ function textResult(value) {
 function startMcpServer(databasePath) {
   const graphs = new Map();
   const fallbackDatabase = databasePath || null;
-  const graphFor = (args, allowImportPath = false) => {
-    const projectPath = args.project_path || (allowImportPath ? args.path : null);
-    const database = projectPath ? projectDbPath(projectPath) : fallbackDatabase;
-    if (!database) throw new Error("project_path is required so each project uses its own graph database.");
+  let active = null; // { id, root }
+
+  function remember(id, root) {
+    active = { id, root };
+    return active;
+  }
+
+  function loadSavedActive() {
+    if (active) return active;
+    const fromEnv = process.env.REQUIREMENT_GRAPH_PROJECT;
+    if (fromEnv) {
+      const resolved = resolveProject(fromEnv);
+      if (resolved) return remember(resolved.id, resolved.root);
+    }
+    const saved = activeProject();
+    if (saved) return remember(saved.id, saved.root);
+    return null;
+  }
+
+  // Resolves the target project and database for one tool call.
+  function resolveTarget(args = {}) {
+    let root = null;
+    const explicit = args.project_path || args.project;
+    if (explicit) {
+      const resolved = resolveProject(explicit);
+      if (!resolved) throw new Error("Unknown project reference: " + explicit + ". Register it with requirement_graph_use_project first.");
+      root = resolved.root;
+    } else {
+      loadSavedActive();
+      root = active ? active.root : null;
+    }
+    if (!root && !fallbackDatabase) {
+      throw new Error("No active project. Call requirement_graph_use_project with the project directory first, or pass project_path.");
+    }
+    const database = fallbackDatabase || projectDbPath(root);
     if (!graphs.has(database)) graphs.set(database, new RequirementGraph(database));
-    return graphs.get(database);
-  };
+    return { graph: graphs.get(database), database, root };
+  }
+
   const send = (message) => process.stdout.write(JSON.stringify(message) + "\n");
   const respond = (id, result) => send({ jsonrpc: "2.0", id, result });
   const fail = (id, code, message) => send({ jsonrpc: "2.0", id, error: { code, message } });
@@ -114,22 +155,82 @@ function startMcpServer(databasePath) {
         const args = request.params.arguments || {};
         let value;
         switch (request.params.name) {
-          case "requirement_graph_import": value = importPath(graphFor(args, true), args.path); break;
-          case "requirement_graph_documents": value = graphFor(args).sourceDocuments(args.offset, args.limit); break;
-          case "requirement_graph_read_document": value = graphFor(args).readSourceDocument(args.id, args.offset, args.limit); break;
-          case "requirement_graph_replace": value = applyStructuredGraph(graphFor(args), args); break;
-          case "requirement_graph_sync": value = syncImportedDocuments(graphFor(args)); break;
-          case "requirement_graph_search": value = graphFor(args).search(args.query, args.limit); break;
-          case "requirement_graph_context": value = graphFor(args).context(args.id); break;
-          case "requirement_graph_trace": value = graphFor(args).traverse(args.id, args.direction || "outgoing", args.depth); break;
-          case "requirement_graph_impact": value = graphFor(args).traverse(args.id, "incoming", args.depth); break;
-          case "requirement_graph_unlinked": value = graphFor(args).unlinked(); break;
-          case "requirement_graph_stats": value = graphFor(args).stats(); break;
+          case "requirement_graph_use_project": {
+            const explicit = args.project_path || args.project;
+            if (!explicit) throw new Error("Provide the project directory path or a registered project id.");
+            const resolved = resolveProject(explicit);
+            if (!resolved) throw new Error("Unknown project reference: " + explicit + ".");
+            remember(resolved.id, resolved.root);
+            value = { project: resolved.id, root: resolved.root, database: projectDbPath(resolved.root), active: true };
+            break;
+          }
+          case "requirement_graph_list_projects": {
+            const entries = listProjects();
+            const saved = loadSavedActive();
+            value = { projects: entries, active: saved ? { id: saved.id, root: saved.root } : null };
+            break;
+          }
+          case "requirement_graph_import": {
+            const { graph } = resolveTarget(args);
+            value = importPath(graph, args.path);
+            break;
+          }
+          case "requirement_graph_documents": {
+            const { graph } = resolveTarget(args);
+            value = graph.sourceDocuments(args.offset, args.limit);
+            break;
+          }
+          case "requirement_graph_read_document": {
+            const { graph } = resolveTarget(args);
+            value = graph.readSourceDocument(args.id, args.offset, args.limit);
+            break;
+          }
+          case "requirement_graph_replace": {
+            const { graph } = resolveTarget(args);
+            value = applyStructuredGraph(graph, args);
+            break;
+          }
+          case "requirement_graph_sync": {
+            const { graph } = resolveTarget(args);
+            value = syncImportedDocuments(graph);
+            break;
+          }
+          case "requirement_graph_search": {
+            const { graph } = resolveTarget(args);
+            value = graph.search(args.query, args.limit);
+            break;
+          }
+          case "requirement_graph_context": {
+            const { graph } = resolveTarget(args);
+            value = graph.context(args.id);
+            break;
+          }
+          case "requirement_graph_trace": {
+            const { graph } = resolveTarget(args);
+            value = graph.traverse(args.id, args.direction || "outgoing", args.depth);
+            break;
+          }
+          case "requirement_graph_impact": {
+            const { graph } = resolveTarget(args);
+            value = graph.traverse(args.id, "incoming", args.depth);
+            break;
+          }
+          case "requirement_graph_unlinked": {
+            const { graph } = resolveTarget(args);
+            value = graph.unlinked();
+            break;
+          }
+          case "requirement_graph_stats": {
+            const { graph } = resolveTarget(args);
+            value = graph.stats();
+            break;
+          }
           case "requirement_graph_open_web": {
+            const { root } = resolveTarget(args);
             // The web UI runs as a detached per-project daemon, so it stays up
             // after this MCP process (and the Codex session owning it) exits.
             // A later session reconnects to the same URL instead of restarting.
-            value = await ensureWebServer(resolveProjectRoot(args.project_path));
+            value = await ensureWebServer(root);
             break;
           }
           default: return fail(request.id, -32602, "Unknown tool: " + request.params.name);
