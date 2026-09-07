@@ -29,12 +29,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/Steven-Qiang/requirement-graph-mcp.git"
+    "url": "https://github.com/Zilvren/requirement-graph-mcp.git"
   },
   "bugs": {
-    "url": "https://github.com/Steven-Qiang/requirement-graph-mcp/issues"
+    "url": "https://github.com/Zilvren/requirement-graph-mcp/issues"
   },
-  "homepage": "https://github.com/Steven-Qiang/requirement-graph-mcp",
+  "homepage": "https://github.com/Zilvren/requirement-graph-mcp",
   "scripts": {
     "test": "node test/hierarchy.js && node test/smoke.js && node test/web.js && node test/web-ui.js && node test/web-daemon.js && node test/mcp-web.js",
     "test:core": "node test/hierarchy.js && node test/smoke.js",
