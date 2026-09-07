@@ -350,6 +350,29 @@ This project is licensed under the **MIT License** — see [LICENSE](./LICENSE).
 
 Copyright © 2026 Zilv · Steven Qiang
 
+## Automatic releases (semantic-release)
+
+Every push to `main` triggers the GitHub Actions **Release** workflow, which uses
+[semantic-release](https://semantic-release.gitbook.io) to decide the next version from
+Conventional Commits and publish it:
+
+- `feat:` → minor; `fix:` / `perf:` → patch; `BREAKING CHANGE` or `!` → major; commits such as plain
+  `chore:` never trigger a release.
+- Each release updates `CHANGELOG.md`, pushes the version tag, creates a GitHub Release, and publishes
+  the package to npm.
+- Publishing uses **OIDC `id-token` + npm Trusted Publishing**, so packages ship with npm provenance and
+  no token needs to be stored as a repository secret.
+
+One-time prerequisites (npm side, done by the account owner):
+
+1. Claim or create the package name `requirement-graph-mcp` on npmjs.com;
+2. In that package’s **Trusted Publishing** settings, link the `Zilvren/requirement-graph-mcp` repository
+   and this `Release` workflow;
+3. After that, any `feat`/`fix` push to `main` publishes automatically.
+
+If you prefer not to use OIDC: add an `NPM_TOKEN` repository secret and remove the
+`NPM_CONFIG_PROVENANCE` environment variable from `.github/workflows/release.yml`.
+
 ## Roadmap
 
 The MVP import layer can grow adapters for DOCX, PDF, HTML, Obsidian and Notion exports. Reliable

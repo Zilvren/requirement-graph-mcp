@@ -1,7 +1,6 @@
 {
   "name": "requirement-graph-mcp",
-  "version": "0.4.1",
-  "private": true,
+  "version": "1.0.0",
   "description": "A local-first requirement & document graph: import Markdown/TXT/JSON/CSV into a per-project SQLite database and query or visualise it through an MCP server and a local web UI.",
   "type": "commonjs",
   "license": "MIT",
@@ -9,6 +8,7 @@
   "contributors": [
     "Steven Qiang"
   ],
+  "packageManager": "pnpm@11.13.0",
   "keywords": [
     "requirements",
     "requirement-graph",
@@ -23,6 +23,15 @@
   ],
   "bin": {
     "requirement-graph": "src/index.js"
+  },
+  "files": [
+    "src/",
+    "LICENSE",
+    "README.md",
+    "README.en.md"
+  ],
+  "publishConfig": {
+    "access": "public"
   },
   "engines": {
     "node": ">=22.5.0"
@@ -39,6 +48,16 @@
     "test": "node test/hierarchy.js && node test/smoke.js && node test/web.js && node test/web-ui.js && node test/web-daemon.js && node test/mcp-web.js",
     "test:core": "node test/hierarchy.js && node test/smoke.js",
     "test:web": "node test/web.js && node test/web-ui.js && node test/web-daemon.js",
-    "test:mcp": "node test/mcp-web.js"
+    "test:mcp": "node test/mcp-web.js",
+    "prepublishOnly": "npm test"
+  },
+  "devDependencies": {
+    "@semantic-release/changelog": "^7.0.0",
+    "@semantic-release/commit-analyzer": "^13.0.1",
+    "@semantic-release/git": "^11.0.1",
+    "@semantic-release/github": "^12.0.9",
+    "@semantic-release/npm": "^13.1.5",
+    "@semantic-release/release-notes-generator": "^14.1.1",
+    "semantic-release": "^25.0.9"
   }
 }

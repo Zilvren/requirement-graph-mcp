@@ -1,0 +1,53 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+# contents: write is required by semantic-release to push the release commit
+# and tag and to create the GitHub Release. id-token: write enables npm
+# provenance / Trusted Publishing (OIDC), so no NPM_TOKEN secret is needed
+# once the package is linked to this repository on npmjs.com.
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run tests
+        run: npm test
+
+      - name: Semantic release (version + publish + GitHub release)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Request npm provenance. npm will authenticate through the OIDC
+          # id-token from this workflow (Trusted Publishing) and fail closed if
+          # the package is not yet linked to this repository on npmjs.com.
+          NPM_CONFIG_PROVENANCE: "true"
+        run: pnpm exec semantic-release

@@ -326,6 +326,24 @@ requirement-graph-mcp/
 
 Copyright © 2026 Zilv · Steven Qiang
 
+## 自动发布（semantic-release）
+
+推送到 `main` 会触发 GitHub Actions 的 **Release** 工作流，用 [semantic-release](https://semantic-release.gitbook.io)
+按 Conventional Commits 自动决定版本并发布：
+
+- `feat:` → minor；`fix:` / `perf:` → patch；`BREAKING CHANGE` 或 `!` → major；只有 `chore:` 之类的提交不会发版。
+- 每次发版会：更新 `CHANGELOG.md`、推送版本 tag、创建 GitHub Release，并把包发布到 npm。
+- 发布使用 **OIDC `id-token` + npm Trusted Publishing**，生成的包自带 provenance，无需把令牌存为仓库 Secret。
+
+一次性前置条件（npm 侧，需账号所有者操作）：
+
+1. 在 npmjs.com 认领/创建包名 `requirement-graph-mcp`；
+2. 在该包的 **Trusted Publishing** 设置中关联仓库 `Zilvren/requirement-graph-mcp` 与本 `Release` 工作流；
+3. 之后任何推送到 `main` 的 `feat`/`fix` 提交都会自动发版。
+
+如果不用 OIDC：在仓库 Secrets 添加 `NPM_TOKEN`，并把 `.github/workflows/release.yml` 中的
+`NPM_CONFIG_PROVENANCE` 环境变量删掉即可。
+
 ## 下一步可扩展
 
 这个 MVP 的导入层可继续增加 DOCX、PDF、HTML、Obsidian、Notion 导出等适配器。
