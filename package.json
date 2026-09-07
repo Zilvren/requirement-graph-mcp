@@ -1,0 +1,41 @@
+{
+  "name": "requirement-graph-mcp",
+  "version": "0.4.1",
+  "private": true,
+  "description": "A local-first requirement & document graph: import Markdown/TXT/JSON/CSV into a per-project SQLite database and query or visualise it through an MCP server and a local web UI.",
+  "type": "commonjs",
+  "license": "MIT",
+  "author": "Zilv",
+  "contributors": [
+    "Steven Qiang"
+  ],
+  "keywords": [
+    "requirements",
+    "requirement-graph",
+    "requirements-management",
+    "document-graph",
+    "mcp",
+    "model-context-protocol",
+    "codex",
+    "sqlite",
+    "markdown",
+    "local-first"
+  ],
+  "bin": {
+    "requirement-graph": "src/index.js"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Steven-Qiang/requirement-graph-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Steven-Qiang/requirement-graph-mcp/issues"
+  },
+  "homepage": "https://github.com/Steven-Qiang/requirement-graph-mcp",
+  "scripts": {
+    "test": "node test/hierarchy.js && node test/smoke.js && node test/web.js && node test/web-ui.js && node test/mcp-web.js"
+  }
+}

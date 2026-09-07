@@ -1,0 +1,36 @@
+# --- 依赖 / Dependencies ---
+node_modules/
+
+# --- 项目本地状态：每项目需求图谱数据库与缓存 ---
+# --- Local per-project state: requirement-graph databases and caches ---
+.requirement-graph/
+
+# --- 测试覆盖率 / Test & coverage output ---
+coverage/
+
+# --- 构建与打包产物 / Build & packaging ---
+dist/
+build/
+*.tgz
+
+# --- 日志 / Logs ---
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# --- 环境变量与密钥 / Environment & secrets ---
+.env
+.env.*
+!.env.example
+
+# --- 编辑器与 IDE / Editors & IDE ---
+.vscode/
+.idea/
+*.iml
+
+# --- 操作系统噪音文件 / OS noise ---
+.DS_Store
+Thumbs.db
+Desktop.ini

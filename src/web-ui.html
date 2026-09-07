@@ -1,0 +1,1913 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Requirement Graph</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f7f6f2;
+      --fg: #16150f;
+      --muted: #87847a;
+      --line: #d6d3c8;
+      --surface: #fffefb;
+      --surface-muted: #e8e6dd;
+      --accent: #7a2230;
+      --warning: #8a5a0b;
+      --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        color-scheme: dark;
+        --bg: #1d1c18;
+        --fg: #f2efe6;
+        --muted: #b8b2a7;
+        --line: #4a463e;
+        --surface: #25231e;
+        --surface-muted: #302d27;
+        --accent: #d98796;
+        --warning: #e2ae5b;
+      }
+    }
+
+    * { box-sizing: border-box; }
+    html, body { min-height: 100%; }
+    body {
+      min-width: 320px;
+      min-height: 100dvh;
+      margin: 0;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: Archivo, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 14px;
+    }
+
+    button, input, select {
+      border: 1px solid var(--line);
+      border-radius: 0;
+      background: var(--surface);
+      color: var(--fg);
+      font: inherit;
+    }
+    button { cursor: pointer; }
+    button:hover { border-color: var(--fg); background: var(--surface-muted); }
+    button:focus-visible, input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+    #requirement-graph-web {
+      display: grid;
+      grid-template-rows: auto auto auto minmax(340px, 1fr) auto;
+      min-height: 580px;
+      height: 100dvh;
+    }
+    .app-bar { grid-row: 1; }
+    .navigation { grid-row: 2; }
+    .toolbar { grid-row: 3; }
+    .layout, .reader-view { grid-row: 4; }
+    .legend { grid-row: 5; }
+
+    .app-bar {
+      display: grid;
+      grid-template-columns: minmax(180px, 1fr) auto auto;
+      min-height: 48px;
+      align-items: center;
+      border-bottom: 1px solid var(--line);
+      background: var(--bg);
+      font-size: 13px;
+    }
+    .brand, .project-label, .reader-search {
+      min-height: 48px;
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      padding: 0 14px;
+      border-right: 1px solid var(--line);
+    }
+    .brand { font-weight: 700; letter-spacing: -0.01em; }
+    .brand-mark {
+      display: inline-grid;
+      place-items: center;
+      width: 23px;
+      height: 23px;
+      background: var(--accent);
+      color: #fff;
+      font: 700 10px/1 var(--mono);
+      letter-spacing: 0.08em;
+    }
+    .project-label {
+      max-width: min(42vw, 390px);
+      overflow: hidden;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 11px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .reader-search {
+      border: 0;
+      border-left: 1px solid var(--line);
+      background: transparent;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 11px;
+    }
+    .reader-search:hover { color: var(--fg); }
+    .reader-search kbd {
+      padding: 1px 4px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      color: var(--fg);
+      font: inherit;
+      font-size: 10px;
+    }
+
+    .navigation {
+      display: flex;
+      align-items: stretch;
+      min-height: 35px;
+      overflow: auto;
+      border-bottom: 1px solid var(--line);
+      background: var(--surface);
+    }
+    .view-tab {
+      min-height: 34px;
+      padding: 0 14px;
+      border: 0;
+      border-right: 1px solid var(--line);
+      color: var(--muted);
+      background: transparent;
+      font-size: 12px;
+    }
+    .view-tab.is-active {
+      color: var(--fg);
+      box-shadow: inset 0 -2px var(--accent);
+      font-weight: 700;
+    }
+    .trail {
+      align-self: center;
+      min-width: 0;
+      overflow: hidden;
+      padding: 0 12px;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 11px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: stretch;
+      padding: 0;
+      border-bottom: 1px solid var(--line);
+      background: var(--surface-muted);
+    }
+    .toolbar-title {
+      display: inline-flex;
+      align-items: center;
+      padding: 0 14px;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+    }
+    .control {
+      display: inline-flex;
+      align-items: center;
+      min-height: 43px;
+      gap: 5px;
+      padding: 0 8px;
+      border-left: 1px solid var(--line);
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 11px;
+    }
+    .control input, .control select {
+      min-height: 28px;
+      padding: 4px 8px;
+      border-color: var(--line);
+      background: var(--surface);
+      font-size: 12px;
+    }
+    .control input { min-width: 190px; }
+    .toolbar > button {
+      min-height: 43px;
+      padding: 4px 11px;
+      border-width: 0 0 0 1px;
+      border-color: var(--line);
+      font-size: 12px;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      min-height: 0;
+    }
+    .layout.has-selection { grid-template-columns: minmax(0, 1fr) 320px; }
+    .viewport {
+      position: relative;
+      min-height: 0;
+      overflow: hidden;
+      border-right: 1px solid var(--line);
+      background: var(--bg);
+    }
+    svg {
+      display: block;
+      width: 100%;
+      height: 100%;
+      min-height: 400px;
+      touch-action: none;
+      cursor: grab;
+    }
+    svg.is-panning { cursor: grabbing; }
+    .edge {
+      stroke: var(--fg);
+      stroke-width: 1.25;
+      stroke-opacity: 0.28;
+      vector-effect: non-scaling-stroke;
+      pointer-events: none;
+    }
+    .edge.hierarchy { stroke-opacity: 0.52; }
+    .edge.cross { stroke: var(--warning); stroke-dasharray: 3 5; stroke-opacity: 0.42; }
+    .edge.weak { stroke: var(--warning); stroke-dasharray: 3 5; stroke-opacity: 0.55; }
+    .edge[data-weight="2"], .edge[data-weight="3"], .edge[data-weight="4"] { stroke-width: 2; }
+    .edge.dimmed { opacity: 0.15; }
+
+    .node { cursor: pointer; outline: none; }
+    .node-card {
+      fill: var(--surface);
+      stroke: var(--fg);
+      stroke-width: 1;
+      vector-effect: non-scaling-stroke;
+    }
+    .node:hover .node-card, .node.selected .node-card {
+      fill: var(--surface-muted);
+      stroke-width: 2;
+    }
+    .node.dimmed { opacity: 0.34; }
+    .node.search-context .node-card { stroke: var(--muted); stroke-dasharray: 3 3; }
+    .node-toggle { cursor: pointer; outline: none; }
+    .node-toggle rect { fill: var(--surface-muted); stroke: var(--line); vector-effect: non-scaling-stroke; }
+    .node-toggle:hover rect, .node-toggle:focus-visible rect { stroke: var(--accent); stroke-width: 2; }
+    .node-toggle text { fill: var(--accent); font: 700 17px var(--mono); pointer-events: none; }
+    .node-toggle[aria-disabled="true"] { cursor: default; opacity: 0.55; }
+    .node-title {
+      fill: var(--fg);
+      font-family: var(--mono);
+      font-size: 13px;
+      font-weight: 500;
+      pointer-events: auto;
+    }
+    .node-meta {
+      fill: var(--muted);
+      font-family: Archivo, ui-sans-serif, system-ui, sans-serif;
+      font-size: 11px;
+      pointer-events: auto;
+    }
+
+    .empty-state {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      color: var(--muted);
+      text-align: center;
+      pointer-events: none;
+    }
+    .empty-state[hidden] { display: none; }
+    .details {
+      display: none;
+      padding: 18px;
+      overflow: auto;
+      background: var(--surface);
+    }
+    .layout.has-selection .details { display: block; }
+    .details h2 { margin: 0 0 10px; font: 600 14px/1.3 var(--mono); }
+    .details p { margin: 7px 0; overflow-wrap: anywhere; color: var(--muted); }
+    .details code, .reader-evidence code {
+      display: block;
+      margin-top: 10px;
+      padding: 10px;
+      overflow: auto;
+      border: 1px solid var(--line);
+      background: var(--surface-muted);
+      color: var(--muted);
+      font: 11px/1.45 var(--mono);
+      white-space: pre-wrap;
+    }
+    .relation-list { display: grid; gap: 6px; margin-top: 12px; }
+    .relation-link {
+      width: 100%;
+      min-height: 0;
+      padding: 7px 8px;
+      text-align: left;
+      overflow-wrap: anywhere;
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px;
+      min-height: 36px;
+      padding: 7px 14px;
+      border-top: 1px solid var(--line);
+      background: var(--surface);
+      color: var(--muted);
+      font: 12px/1.3 var(--mono);
+    }
+    .legend-item { display: inline-flex; align-items: center; gap: 6px; }
+    .card-swatch {
+      width: 13px;
+      height: 10px;
+      border: 1px solid var(--fg);
+      background: var(--surface);
+    }
+    .line-swatch { width: 16px; border-top: 2px solid var(--fg); }
+    .line-swatch.cross { border-top-color: var(--warning); border-top-style: dashed; }
+    .warning { color: var(--warning); }
+
+    .reader-view {
+      display: grid;
+      grid-template-columns: minmax(250px, 320px) minmax(0, 1fr);
+      min-height: 0;
+      background: var(--surface);
+    }
+    .reader-view[hidden], .layout[hidden], .toolbar[hidden], .legend[hidden] { display: none !important; }
+    .reader-documents, .reader-center { min-width: 0; padding: 20px; overflow: auto; }
+    .reader-documents { background: var(--bg); border-right: 1px solid var(--line); }
+    .reader-kicker {
+      margin: 0 0 7px;
+      color: var(--muted);
+      font: 700 10px/1.3 var(--mono);
+      letter-spacing: 0.1em;
+    }
+    .reader-documents h2, .reader-section-title {
+      margin: 0;
+      color: var(--fg);
+      font-size: 14px;
+      letter-spacing: -0.01em;
+    }
+    .reader-hint { margin: 7px 0 16px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+    .reader-document-filter { display: grid; gap: 6px; margin: 0 0 12px; color: var(--muted); font: 10px/1.2 var(--mono); }
+    .reader-document-filter input { width: 100%; min-width: 0; padding: 8px 9px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); font: 12px/1.3 var(--mono); }
+    .reader-document-list { display: grid; gap: 7px; }
+    .reader-document-item { width: 100%; min-height: 0; padding: 10px; border: 1px solid var(--line); background: var(--surface); text-align: left; }
+    .reader-document-item:hover, .reader-document-item.is-selected { border-color: var(--accent); background: var(--surface-muted); }
+    .reader-document-label { display: block; overflow: hidden; color: var(--fg); font-size: 12px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+    .reader-document-meta { display: block; margin-top: 4px; overflow: hidden; color: var(--muted); font: 10px/1.35 var(--mono); text-overflow: ellipsis; white-space: nowrap; }
+    .reader-none { margin: 0; padding: 9px 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+    .reader-heading {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 14px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--line);
+    }
+    .reader-source {
+      margin: 0 0 7px;
+      color: var(--accent);
+      font: 700 10px/1.3 var(--mono);
+      letter-spacing: 0.08em;
+    }
+    .reader-title {
+      margin: 0;
+      color: var(--fg);
+      font-size: clamp(21px, 3vw, 32px);
+      line-height: 1.15;
+      letter-spacing: -0.035em;
+    }
+    .reader-path { margin: 9px 0 0; overflow-wrap: anywhere; color: var(--muted); font: 11px/1.45 var(--mono); }
+    .reader-document-facts { display: flex; flex-wrap: wrap; gap: 6px; margin: 15px 0 0; }
+    .reader-document-fact { padding: 3px 6px; border: 1px solid var(--line); color: var(--muted); font: 10px/1.2 var(--mono); }
+    .reader-content { padding: 20px 0; }
+    .reader-document-content { min-height: 260px; margin: 10px 0 0; padding: 14px; overflow: auto; border: 1px solid var(--line); background: var(--bg); color: var(--fg); font: 14px/1.75 Archivo, ui-sans-serif, system-ui, sans-serif; overflow-wrap: anywhere; }
+    .reader-document-content.is-empty { color: var(--muted); font-family: inherit; }
+    .reader-document-content > :first-child { margin-top: 0; }
+    .reader-document-content > :last-child { margin-bottom: 0; }
+    .reader-document-content h1, .reader-document-content h2, .reader-document-content h3,
+    .reader-document-content h4, .reader-document-content h5, .reader-document-content h6 {
+      margin: 1.45em 0 0.55em;
+      color: var(--fg);
+      font-family: Archivo, ui-sans-serif, system-ui, sans-serif;
+      line-height: 1.28;
+    }
+    .reader-document-content h1 { font-size: 1.55em; }
+    .reader-document-content h2 { font-size: 1.32em; }
+    .reader-document-content h3 { font-size: 1.12em; }
+    .reader-document-content h4, .reader-document-content h5, .reader-document-content h6 { font-size: 1em; }
+    .reader-document-content p { margin: 0 0 1em; }
+    .reader-document-content ul, .reader-document-content ol { margin: 0 0 1em; padding-left: 1.55em; }
+    .reader-document-content li + li { margin-top: 0.35em; }
+    .reader-document-content hr { height: 0; margin: 1.4em 0; border: 0; border-top: 1px solid var(--line); }
+    .reader-document-content .markdown-table-scroll {
+      margin: 0 0 1em;
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      -webkit-overflow-scrolling: touch;
+    }
+    .reader-document-content table { width: 100%; min-width: 540px; border-collapse: collapse; font-size: 0.93em; line-height: 1.5; }
+    .reader-document-content th, .reader-document-content td { padding: 8px 10px; border: 1px solid var(--line); text-align: left; vertical-align: top; }
+    .reader-document-content thead th { background: var(--surface-muted); font-weight: 700; }
+    .reader-document-content pre {
+      margin: 0 0 1em;
+      padding: 11px;
+      overflow: auto;
+      border: 1px solid var(--line);
+      background: var(--surface-muted);
+      color: var(--fg);
+      font: 12px/1.55 var(--mono);
+      white-space: pre;
+    }
+    .reader-document-content pre code { padding: 0; border: 0; background: transparent; color: inherit; font: inherit; }
+    .reader-document-content :not(pre) > code {
+      padding: 0.08em 0.3em;
+      border: 1px solid var(--line);
+      background: var(--surface-muted);
+      color: var(--fg);
+      font: 0.9em/1.35 var(--mono);
+    }
+    .reader-document-content a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 0.16em; }
+    .reader-document-content a:hover { color: var(--fg); }
+
+    /* Three-pane reading workbench: documents, original content, document facts. */
+    .reader-view {
+      grid-template-columns: minmax(240px, 300px) minmax(0, 1fr) minmax(240px, 300px);
+      height: 100%;
+      overflow: hidden;
+    }
+    .reader-documents, .reader-center, .reader-info {
+      min-width: 0;
+      min-height: 0;
+      padding: 16px;
+      overflow: auto;
+    }
+    .reader-center {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      background: var(--bg);
+      border-right: 1px solid var(--line);
+    }
+    .reader-info {
+      background: var(--surface);
+    }
+    .reader-center .reader-content {
+      display: flex;
+      flex: 1 1 auto;
+      flex-direction: column;
+      min-height: 0;
+      padding: 0;
+    }
+    .reader-content-heading {
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--line);
+    }
+    .reader-center .reader-document-content {
+      flex: 1 1 auto;
+      min-height: 0;
+      margin: 12px 0 0;
+      padding: 0;
+      border: 0;
+      background: transparent;
+    }
+    .reader-info .reader-title {
+      font-size: 18px;
+      line-height: 1.35;
+      letter-spacing: -0.015em;
+    }
+    .reader-evidence {
+      margin-top: 20px;
+      padding-top: 16px;
+      border-top: 1px solid var(--line);
+    }
+    .reader-evidence-list { display: grid; gap: 8px; }
+    .reader-evidence-item {
+      padding: 10px;
+      border: 1px solid var(--line);
+      background: var(--surface-muted);
+    }
+    .reader-evidence-path {
+      margin: 0;
+      overflow-wrap: anywhere;
+      color: var(--accent);
+      font: 700 10px/1.4 var(--mono);
+    }
+    .reader-evidence-excerpt {
+      margin: 7px 0 0;
+      color: var(--fg);
+      font: 12px/1.55 var(--mono);
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+    .reader-evidence-document {
+      margin: 0;
+      color: var(--muted);
+      font: 10px/1.45 var(--mono);
+      overflow-wrap: anywhere;
+    }
+    @media (max-width: 960px) {
+      .reader-view { grid-template-columns: minmax(220px, 280px) minmax(0, 1fr); }
+      .reader-info {
+        display: block;
+        grid-column: 1 / -1;
+        max-height: 280px;
+        border-top: 1px solid var(--line);
+      }
+    }
+
+    @media (max-width: 760px) {
+      #requirement-graph-web { min-height: 700px; height: auto; }
+      .app-bar { grid-template-columns: 1fr auto; }
+      .project-label { display: none; }
+      .toolbar-title { width: 100%; min-height: 34px; }
+      .control { border-top: 1px solid var(--line); }
+      .control input { min-width: 140px; width: 100%; }
+      .layout.has-selection { grid-template-columns: 1fr; }
+      .details { max-height: 210px; border-top: 1px solid var(--line); }
+      .reader-view { grid-template-columns: 1fr; }
+      .reader-documents { max-height: 260px; border: 0; border-bottom: 1px solid var(--line); }
+      .reader-center { order: initial; }
+      .reader-info { max-height: none; }
+    }
+  </style>
+</head>
+<body>
+  <main id="requirement-graph-web">
+    <header class="app-bar">
+      <div class="brand"><span class="brand-mark">RG</span><span>Requirement Graph</span></div>
+      <div id="project-label" class="project-label">项目图谱</div>
+      <button id="reader-search" class="reader-search" type="button" title="聚焦当前筛选框"><kbd>/</kbd> 搜索</button>
+    </header>
+    <nav class="navigation" aria-label="图谱视图">
+      <button id="map-view-control" class="view-tab is-active" type="button" aria-pressed="true">关系地图</button>
+      <button id="reader-view-control" class="view-tab" type="button" aria-pressed="false">节点阅读</button>
+      <span id="trail" class="trail">选择地图节点查看关系，或切换到节点阅读查看拆分后的内容。</span>
+    </nav>
+    <section id="toolbar" class="toolbar" aria-label="图谱控制">
+      <div class="toolbar-title">查找与视图</div>
+      <label class="control">关系
+        <select id="relationship-scope">
+          <option value="structural">仅结构关系</option>
+          <option value="all">包含文档引用</option>
+        </select>
+      </label>
+      <label class="control">筛选
+        <input id="search" type="search" placeholder="节点名称、类型或来源文件">
+      </label>
+      <label class="control">显示层级
+        <select id="layer-depth" aria-label="显示层级">
+          <option value="1">1 层 · 文档</option>
+          <option value="2" selected>2 层 · 分组</option>
+          <option value="3">3 层 · 需求</option>
+          <option value="all">全部层级</option>
+        </select>
+      </label>
+      <button id="fit" type="button">适配画布</button>
+      <button id="focus" type="button" hidden>聚焦关联</button>
+      <button id="show-cross-relations" type="button" hidden>显示交叉关系</button>
+      <button id="sync" type="button" hidden>重新识别关系</button>
+      <button id="refresh" type="button">刷新</button>
+    </section>
+    <section id="reader-view" class="reader-view" hidden aria-live="polite">
+      <aside class="reader-documents">
+        <p class="reader-kicker">REQUIREMENT NODES</p>
+        <h2>需求节点</h2>
+        <p class="reader-hint">选择一个需求节点，直接阅读拆分后的正文与原文证据。</p>
+        <label class="reader-document-filter">筛选节点
+          <input id="reader-document-search" type="search" placeholder="标题、ID、类型或来源路径">
+        </label>
+        <div id="reader-document-list" class="reader-document-list"></div>
+      </aside>
+      <article class="reader-center">
+        <section class="reader-content" aria-label="需求节点内容">
+          <div class="reader-content-heading">
+            <p class="reader-kicker">NODE CONTENT</p>
+            <h2 class="reader-section-title">需求节点内容</h2>
+          </div>
+          <div id="reader-document-content" class="reader-document-content is-empty" aria-live="polite">选择一个需求节点后，节点正文会在这里显示。</div>
+        </section>
+      </article>
+      <aside class="reader-info" aria-live="polite">
+        <p class="reader-kicker">REQUIREMENT NODE</p>
+        <div class="reader-heading">
+          <div>
+            <p id="reader-document-source" class="reader-source">等待节点数据</p>
+            <h1 id="reader-document-title" class="reader-title">未选择节点</h1>
+          </div>
+        </div>
+        <p id="reader-document-path" class="reader-path">选择需求节点后，可在这里查看其来源与证据。</p>
+        <div id="reader-document-facts" class="reader-document-facts"></div>
+        <section class="reader-evidence" aria-label="原文证据">
+          <p class="reader-kicker">SOURCE EVIDENCE</p>
+          <h2 class="reader-section-title">原文证据</h2>
+          <div id="reader-node-evidence" class="reader-evidence-list"></div>
+        </section>
+      </aside>
+    </section>
+    <section id="map-view" class="layout">
+      <div class="viewport">
+        <svg id="graph" role="group" aria-label="项目需求关系图谱">
+          <g id="camera">
+            <g id="edges"></g>
+            <g id="nodes"></g>
+          </g>
+        </svg>
+        <div id="empty" class="empty-state" aria-live="polite">正在读取需求图谱。</div>
+      </div>
+      <aside class="details" aria-live="polite">
+        <h2 id="detail-title">未选择节点</h2>
+        <p id="detail-body">点击图中的节点，可查看它的来源、类型和关系。</p>
+        <button id="detail-read" type="button" hidden>阅读节点正文与证据</button>
+        <div id="detail-relations" class="relation-list" hidden></div>
+        <code id="detail-meta" hidden></code>
+      </aside>
+    </section>
+    <footer id="legend" class="legend">
+      <span class="legend-item"><span class="card-swatch"></span>需求 / 文档节点</span>
+      <span class="legend-item"><span class="line-swatch"></span>单父层级</span>
+      <span class="legend-item"><span class="line-swatch cross"></span>交叉关系</span>
+      <span class="legend-item">＋展开下一层 · −收起分支</span>
+      <span id="summary"></span>
+      <button id="show-references" type="button" hidden>显示文档引用</button>
+    </footer>
+  </main>
+  <script>
+    (function () {
+      const config = window.__REQUIREMENT_GRAPH_WEB__ || {};
+      const svg = document.getElementById("graph");
+      const layout = document.querySelector(".layout");
+      const mapView = document.getElementById("map-view");
+      const readerView = document.getElementById("reader-view");
+      const mapViewControl = document.getElementById("map-view-control");
+      const readerViewControl = document.getElementById("reader-view-control");
+      const readerSearch = document.getElementById("reader-search");
+      const toolbar = document.getElementById("toolbar");
+      const legend = document.getElementById("legend");
+      const trail = document.getElementById("trail");
+      const projectLabel = document.getElementById("project-label");
+      const readerDocumentSearch = document.getElementById("reader-document-search");
+      const readerDocumentList = document.getElementById("reader-document-list");
+      const readerDocumentSource = document.getElementById("reader-document-source");
+      const readerDocumentTitle = document.getElementById("reader-document-title");
+      const readerDocumentPath = document.getElementById("reader-document-path");
+      const readerDocumentFacts = document.getElementById("reader-document-facts");
+      const readerNodeEvidence = document.getElementById("reader-node-evidence");
+      const readerDocumentContent = document.getElementById("reader-document-content");
+      const camera = document.getElementById("camera");
+      const edgesLayer = document.getElementById("edges");
+      const nodesLayer = document.getElementById("nodes");
+      const empty = document.getElementById("empty");
+      const summary = document.getElementById("summary");
+      const relationshipScope = document.getElementById("relationship-scope");
+      const search = document.getElementById("search");
+      const layerDepth = document.getElementById("layer-depth");
+      const fit = document.getElementById("fit");
+      const focus = document.getElementById("focus");
+      const showCrossRelationsControl = document.getElementById("show-cross-relations");
+      const sync = document.getElementById("sync");
+      const refresh = document.getElementById("refresh");
+      const showReferences = document.getElementById("show-references");
+      const detailTitle = document.getElementById("detail-title");
+      const detailBody = document.getElementById("detail-body");
+      const detailRead = document.getElementById("detail-read");
+      const detailRelations = document.getElementById("detail-relations");
+      const detailMeta = document.getElementById("detail-meta");
+      const svgNs = "http://www.w3.org/2000/svg";
+
+      let graph = { nodes: [], edges: [], sources: [], warnings: [] };
+      let positions = new Map();
+      let selectedId = null;
+      let focusedId = null;
+      let cameraState = { x: 0, y: 0, scale: 1 };
+      let pan = null;
+      let drag = null;
+      let searchTimer = null;
+      let viewMode = "map";
+      let selectionTrail = [];
+      let readerNodes = [];
+      let selectedReaderNode = null;
+      let readerSearchTimer = null;
+      let readerRequest = 0;
+      let showCrossRelations = false;
+      let lastMapNodeClick = null;
+      const expandedIds = new Set();
+      const collapsedIds = new Set();
+      let pendingToggleFocusId = null;
+      const doubleClickWindowMs = 420;
+
+      function element(name, attributes) {
+        const node = document.createElementNS(svgNs, name);
+        Object.keys(attributes || {}).forEach(function (key) {
+          node.setAttribute(key, String(attributes[key]));
+        });
+        return node;
+      }
+
+      function clear(layer) {
+        while (layer.firstChild) layer.removeChild(layer.firstChild);
+      }
+
+      function text(value) {
+        return String(value || "").replace(/\s+/g, " ").trim();
+      }
+
+      // Node bodies originate in imported documents and generated requirements.
+      // Render only the small Markdown subset we need, by creating DOM nodes and
+      // assigning textContent. Raw HTML is deliberately never parsed or trusted.
+      function appendMarkdownText(parent, value) {
+        const content = String(value == null ? "" : value);
+        if (!content) return;
+        if (typeof document.createTextNode === "function") {
+          parent.appendChild(document.createTextNode(content));
+          return;
+        }
+        // The lightweight test DOM does not implement createTextNode.
+        const fallback = document.createElement("span");
+        fallback.textContent = content;
+        parent.appendChild(fallback);
+      }
+
+      function isMarkdownWordCharacter(value) {
+        return /[A-Za-z0-9_\u00c0-\uffff]/.test(value || "");
+      }
+
+      function safeMarkdownLinkHref(value) {
+        const href = String(value == null ? "" : value).trim();
+        if (!href || /[\u0000-\u001f\u007f\s]/.test(href)) return "";
+        if (/^https?:\/\/[^\s]+$/i.test(href) || /^mailto:[^\s]+$/i.test(href)) return href;
+        // Keep document-local paths available without accepting protocol-relative
+        // or custom-scheme URLs such as javascript: and data:.
+        if (/^(?:\/(?!\/)|\.\.?\/|[?#])/.test(href)) return href;
+        return "";
+      }
+
+      function canOpenMarkdownMarker(source, index, marker) {
+        const previous = source[index - 1] || "";
+        const next = source[index + marker.length] || "";
+        if (!next || /\s/.test(next)) return false;
+        return marker.charAt(0) !== "_" || !(isMarkdownWordCharacter(previous) && isMarkdownWordCharacter(next));
+      }
+
+      function canCloseMarkdownMarker(source, index, marker) {
+        const previous = source[index - 1] || "";
+        const next = source[index + marker.length] || "";
+        if (!previous || /\s/.test(previous)) return false;
+        return marker.charAt(0) !== "_" || !(isMarkdownWordCharacter(previous) && isMarkdownWordCharacter(next));
+      }
+
+      function findMarkdownClosingMarker(source, marker, start) {
+        let index = source.indexOf(marker, start);
+        while (index !== -1) {
+          if (canCloseMarkdownMarker(source, index, marker)) return index;
+          index = source.indexOf(marker, index + marker.length);
+        }
+        return -1;
+      }
+
+      function appendInlineMarkdown(parent, value) {
+        const source = String(value == null ? "" : value);
+        let plain = "";
+        let index = 0;
+        const flushPlain = function () {
+          appendMarkdownText(parent, plain);
+          plain = "";
+        };
+
+        while (index < source.length) {
+          const character = source.charAt(index);
+          if (character === "`") {
+            let markerEnd = index;
+            while (source.charAt(markerEnd) === "`") markerEnd += 1;
+            const marker = source.slice(index, markerEnd);
+            const closingIndex = source.indexOf(marker, markerEnd);
+            if (closingIndex !== -1) {
+              flushPlain();
+              const code = document.createElement("code");
+              code.textContent = source.slice(markerEnd, closingIndex);
+              parent.appendChild(code);
+              index = closingIndex + marker.length;
+              continue;
+            }
+          }
+
+          if (character === "[") {
+            const labelEnd = source.indexOf("](", index + 1);
+            const urlEnd = labelEnd === -1 ? -1 : source.indexOf(")", labelEnd + 2);
+            if (labelEnd !== -1 && urlEnd !== -1 && source.slice(index + 1, labelEnd).indexOf("\n") === -1) {
+              const href = safeMarkdownLinkHref(source.slice(labelEnd + 2, urlEnd));
+              if (href) {
+                flushPlain();
+                const link = document.createElement("a");
+                link.setAttribute("href", href);
+                link.setAttribute("target", "_blank");
+                link.setAttribute("rel", "noopener noreferrer");
+                appendInlineMarkdown(link, source.slice(index + 1, labelEnd));
+                parent.appendChild(link);
+                index = urlEnd + 1;
+                continue;
+              }
+            }
+          }
+
+          let marker = "";
+          if (source.slice(index, index + 2) === "**" || source.slice(index, index + 2) === "__") {
+            marker = source.slice(index, index + 2);
+          } else if (character === "*" || character === "_") {
+            marker = character;
+          }
+          if (marker && canOpenMarkdownMarker(source, index, marker)) {
+            const closingIndex = findMarkdownClosingMarker(source, marker, index + marker.length);
+            if (closingIndex !== -1) {
+              flushPlain();
+              const emphasis = document.createElement(marker.length === 2 ? "strong" : "em");
+              appendInlineMarkdown(emphasis, source.slice(index + marker.length, closingIndex));
+              parent.appendChild(emphasis);
+              index = closingIndex + marker.length;
+              continue;
+            }
+          }
+
+          plain += character;
+          index += 1;
+        }
+        flushPlain();
+      }
+
+      function markdownListItem(line, ordered) {
+        return ordered
+          ? /^ {0,3}\d+[.)][ \t]+(.+)$/.exec(line)
+          : /^ {0,3}[-+*][ \t]+(.+)$/.exec(line);
+      }
+
+      function splitMarkdownTableRow(line) {
+        const trimmed = String(line == null ? "" : line).trim();
+        if (!trimmed.includes("|")) return null;
+        let content = trimmed;
+        if (content.startsWith("|")) content = content.slice(1);
+        if (content.endsWith("|")) content = content.slice(0, -1);
+        const cells = content.split("|").map(function (cell) { return cell.trim(); });
+        return cells.length >= 2 ? cells : null;
+      }
+
+      function parseMarkdownTable(lines, start) {
+        if (start + 2 >= lines.length) return null;
+        const header = splitMarkdownTableRow(lines[start]);
+        const divider = splitMarkdownTableRow(lines[start + 1]);
+        if (!header || !divider || header.length !== divider.length) return null;
+        if (!divider.every(function (cell) { return /^:?-{3,}:?$/.test(cell); })) return null;
+
+        const rows = [];
+        let lineIndex = start + 2;
+        while (lineIndex < lines.length) {
+          const row = splitMarkdownTableRow(lines[lineIndex]);
+          if (!row) break;
+          // A pipe-delimited row with a different number of cells is ambiguous;
+          // keep the entire source as ordinary text instead of silently dropping data.
+          if (row.length !== header.length) return null;
+          rows.push(row);
+          lineIndex += 1;
+        }
+        return rows.length ? { header: header, rows: rows, nextIndex: lineIndex } : null;
+      }
+
+      function renderMarkdownTable(container, table) {
+        const wrapper = document.createElement("div");
+        wrapper.className = "markdown-table-scroll";
+        const tableElement = document.createElement("table");
+        const head = document.createElement("thead");
+        const headRow = document.createElement("tr");
+        table.header.forEach(function (cell) {
+          const heading = document.createElement("th");
+          heading.setAttribute("scope", "col");
+          appendInlineMarkdown(heading, cell);
+          headRow.appendChild(heading);
+        });
+        head.appendChild(headRow);
+        const body = document.createElement("tbody");
+        table.rows.forEach(function (row) {
+          const bodyRow = document.createElement("tr");
+          row.forEach(function (cell) {
+            const data = document.createElement("td");
+            appendInlineMarkdown(data, cell);
+            bodyRow.appendChild(data);
+          });
+          body.appendChild(bodyRow);
+        });
+        tableElement.appendChild(head);
+        tableElement.appendChild(body);
+        wrapper.appendChild(tableElement);
+        container.appendChild(wrapper);
+      }
+
+      function isMarkdownBlockStart(line) {
+        return /^ {0,3}(?:`{3,}|~{3,})/.test(line)
+          || /^ {0,3}#{1,6}[ \t]+/.test(line)
+          || /^ {0,3}([-*_])(?:\s*\1){2,}\s*$/.test(line)
+          || Boolean(markdownListItem(line, false) || markdownListItem(line, true));
+      }
+
+      function renderMarkdownContent(container, value) {
+        const source = String(value == null ? "" : value).replace(/\r\n?/g, "\n");
+        clear(container);
+        container.textContent = "";
+        if (!source.trim()) return false;
+
+        try {
+          const lines = source.split("\n");
+          let lineIndex = 0;
+          while (lineIndex < lines.length) {
+            const line = lines[lineIndex];
+            if (/^\s*$/.test(line)) {
+              lineIndex += 1;
+              continue;
+            }
+
+            const table = parseMarkdownTable(lines, lineIndex);
+            if (table) {
+              renderMarkdownTable(container, table);
+              lineIndex = table.nextIndex;
+              continue;
+            }
+
+            const fence = /^ {0,3}(`{3,}|~{3,}).*$/.exec(line);
+            if (fence) {
+              const marker = fence[1];
+              const markerCharacter = marker.charAt(0);
+              const closeFence = new RegExp("^ {0,3}" + markerCharacter + "{" + marker.length + ",}\\s*$");
+              const codeLines = [];
+              lineIndex += 1;
+              while (lineIndex < lines.length && !closeFence.test(lines[lineIndex])) {
+                codeLines.push(lines[lineIndex]);
+                lineIndex += 1;
+              }
+              if (lineIndex < lines.length) lineIndex += 1;
+              const pre = document.createElement("pre");
+              pre.className = "markdown-code-block";
+              const code = document.createElement("code");
+              code.textContent = codeLines.join("\n");
+              pre.appendChild(code);
+              container.appendChild(pre);
+              continue;
+            }
+
+            const heading = /^ {0,3}(#{1,6})[ \t]+(.+?)\s*#*\s*$/.exec(line);
+            if (heading) {
+              const headingElement = document.createElement("h" + heading[1].length);
+              appendInlineMarkdown(headingElement, heading[2]);
+              container.appendChild(headingElement);
+              lineIndex += 1;
+              continue;
+            }
+
+            if (/^ {0,3}([-*_])(?:\s*\1){2,}\s*$/.test(line)) {
+              container.appendChild(document.createElement("hr"));
+              lineIndex += 1;
+              continue;
+            }
+
+            const unordered = markdownListItem(line, false);
+            const ordered = markdownListItem(line, true);
+            if (unordered || ordered) {
+              const isOrdered = Boolean(ordered);
+              const list = document.createElement(isOrdered ? "ol" : "ul");
+              while (lineIndex < lines.length) {
+                const item = markdownListItem(lines[lineIndex], isOrdered);
+                if (!item) break;
+                const listItem = document.createElement("li");
+                appendInlineMarkdown(listItem, item[1]);
+                lineIndex += 1;
+                while (lineIndex < lines.length && /^ {2,}[^\s]/.test(lines[lineIndex]) && !isMarkdownBlockStart(lines[lineIndex])) {
+                  listItem.appendChild(document.createElement("br"));
+                  appendInlineMarkdown(listItem, lines[lineIndex].trim());
+                  lineIndex += 1;
+                }
+                list.appendChild(listItem);
+              }
+              container.appendChild(list);
+              continue;
+            }
+
+            const paragraphLines = [];
+            while (lineIndex < lines.length && !/^\s*$/.test(lines[lineIndex])) {
+              if (paragraphLines.length && (isMarkdownBlockStart(lines[lineIndex]) || parseMarkdownTable(lines, lineIndex))) break;
+              paragraphLines.push(lines[lineIndex].trim());
+              lineIndex += 1;
+            }
+            const paragraph = document.createElement("p");
+            paragraphLines.forEach(function (paragraphLine, index) {
+              if (index) paragraph.appendChild(document.createElement("br"));
+              appendInlineMarkdown(paragraph, paragraphLine);
+            });
+            container.appendChild(paragraph);
+          }
+          return true;
+        } catch (error) {
+          // A plain-text body is always preferable to a broken reader.
+          clear(container);
+          container.textContent = source;
+          return false;
+        }
+      }
+
+      function projectName(projectPath) {
+        const pieces = String(projectPath || "").split(/[\\/]+/).filter(Boolean);
+        return pieces.length ? pieces[pieces.length - 1] : "项目图谱";
+      }
+
+      function displayId(node) {
+        return String(node && node.id || "").replace(/^rg:/, "");
+      }
+
+      function rememberSelection(id) {
+        if (!id) return;
+        selectionTrail = selectionTrail.filter(function (item) { return item !== id; });
+        selectionTrail.push(id);
+        if (selectionTrail.length > 4) selectionTrail = selectionTrail.slice(-4);
+      }
+
+      function renderTrail(nodeById) {
+        const labels = selectionTrail.map(function (id) {
+          const node = nodeById.get(id);
+          return node ? (node.label || node.title || node.id) : null;
+        }).filter(Boolean);
+        trail.textContent = labels.length ? "阅读路径 · " + labels.join("  ›  ") : "选择地图节点查看关系，或切换到节点阅读查看拆分后的内容。";
+      }
+
+      function edgeWeight(edge) {
+        return Math.max(1, Number(edge.weight) || 1);
+      }
+
+      function appendReaderEmpty(message) {
+        const item = document.createElement("p");
+        item.className = "reader-none";
+        item.textContent = message;
+        readerDocumentList.appendChild(item);
+      }
+
+      function appendReaderFact(value) {
+        const fact = document.createElement("span");
+        fact.className = "reader-document-fact";
+        fact.textContent = value;
+        readerDocumentFacts.appendChild(fact);
+      }
+
+      function readerNodeKey(node) {
+        return String(node && node.id || "");
+      }
+
+      function readerNodeLabel(node) {
+        return node.title || node.label || displayId(node) || node.sourcePath || "未命名节点";
+      }
+
+      function readerNodeMetadata(node) {
+        const metadata = node && node.metadata;
+        return metadata && typeof metadata === "object" && !Array.isArray(metadata) ? metadata : {};
+      }
+
+      function readerNodeSourceRefs(node) {
+        const refs = readerNodeMetadata(node).source_refs;
+        return Array.isArray(refs) ? refs.filter(function (ref) {
+          return ref && typeof ref === "object";
+        }) : [];
+      }
+
+      function readerNodeSourcePath(node) {
+        const reference = readerNodeSourceRefs(node).find(function (ref) { return text(ref.path); });
+        return text(reference && reference.path) || text(node && node.sourcePath);
+      }
+
+      function readerNodeOrigin(node) {
+        const origin = text(readerNodeMetadata(node).origin);
+        if (origin) return origin;
+        return text(node && node.sourcePath).startsWith("codex://") ? "codex_generated" : "imported";
+      }
+
+      function readerNodeSourceDocumentIds(node) {
+        const ids = readerNodeMetadata(node).source_document_ids;
+        return Array.isArray(ids) ? ids.map(text).filter(Boolean) : [];
+      }
+
+      function readerNodeMatches(node, term) {
+        if (!term) return true;
+        const sourceRefs = readerNodeSourceRefs(node).map(function (ref) {
+          return [ref.path, ref.excerpt].map(text).join(" ");
+        });
+        return [
+          readerNodeLabel(node), node.title, node.label, displayId(node), node.kind,
+          node.body, node.sourcePath, readerNodeOrigin(node),
+          readerNodeSourceDocumentIds(node).join(" "), sourceRefs.join(" ")
+        ].some(function (value) {
+          return text(value).toLowerCase().includes(term);
+        });
+      }
+
+      function filteredReaderNodes() {
+        const term = readerDocumentSearch.value.trim().toLowerCase();
+        return readerNodes.filter(function (node) { return readerNodeMatches(node, term); });
+      }
+
+      function appendReaderEvidence(reference) {
+        const item = document.createElement("article");
+        item.className = "reader-evidence-item";
+        const path = document.createElement("p");
+        path.className = "reader-evidence-path";
+        path.textContent = text(reference.path) || "未记录来源路径";
+        const excerpt = document.createElement("p");
+        excerpt.className = "reader-evidence-excerpt";
+        excerpt.textContent = text(reference.excerpt) || "未记录原文摘录。";
+        item.appendChild(path);
+        item.appendChild(excerpt);
+        readerNodeEvidence.appendChild(item);
+      }
+
+      function renderReaderEvidence() {
+        clear(readerNodeEvidence);
+        if (!selectedReaderNode) return;
+        const refs = readerNodeSourceRefs(selectedReaderNode);
+        if (refs.length) {
+          refs.forEach(appendReaderEvidence);
+        } else {
+          const empty = document.createElement("p");
+          empty.className = "reader-none";
+          empty.textContent = "此节点暂未记录原文证据摘录。";
+          readerNodeEvidence.appendChild(empty);
+        }
+        const sourceDocumentIds = readerNodeSourceDocumentIds(selectedReaderNode);
+        if (sourceDocumentIds.length) {
+          const documents = document.createElement("p");
+          documents.className = "reader-evidence-document";
+          documents.textContent = "证据文档 · " + sourceDocumentIds.join(" · ");
+          readerNodeEvidence.appendChild(documents);
+        }
+      }
+
+      function renderReaderNodeList() {
+        clear(readerDocumentList);
+        const visibleNodes = filteredReaderNodes();
+        if (!visibleNodes.length) {
+          appendReaderEmpty("没有匹配的需求节点。可先让 Codex 分析需求文档，再生成节点。");
+          return;
+        }
+        visibleNodes.forEach(function (node) {
+          const item = document.createElement("button");
+          item.type = "button";
+          item.className = "reader-document-item" + (selectedReaderNode && readerNodeKey(selectedReaderNode) === readerNodeKey(node) ? " is-selected" : "");
+          const label = document.createElement("span");
+          label.className = "reader-document-label";
+          label.textContent = readerNodeLabel(node);
+          const meta = document.createElement("span");
+          meta.className = "reader-document-meta";
+          meta.textContent = [node.kind || "requirement", displayId(node) || "无稳定 ID", String(node.body || "").length + " 字符"].join(" · ");
+          item.appendChild(label);
+          item.appendChild(meta);
+          item.addEventListener("click", function () { selectReaderNode(node); });
+          readerDocumentList.appendChild(item);
+        });
+      }
+
+      function renderReaderNode() {
+        clear(readerDocumentFacts);
+        if (!selectedReaderNode) {
+          readerDocumentSource.textContent = "等待节点数据";
+          readerDocumentTitle.textContent = "未选择节点";
+          readerDocumentPath.textContent = "选择需求节点后，可在这里查看其来源与证据。";
+          clear(readerDocumentContent);
+          readerDocumentContent.textContent = "选择一个需求节点后，节点正文会在这里显示。";
+          readerDocumentContent.classList.add("is-empty");
+          renderReaderEvidence();
+          return;
+        }
+        const body = String(selectedReaderNode.body || "");
+        readerDocumentSource.textContent = "REQUIREMENT NODE · " + String(selectedReaderNode.kind || "requirement").toUpperCase();
+        readerDocumentTitle.textContent = readerNodeLabel(selectedReaderNode);
+        readerDocumentPath.textContent = readerNodeSourcePath(selectedReaderNode) || displayId(selectedReaderNode);
+        appendReaderFact("类型 · " + (selectedReaderNode.kind || "requirement"));
+        appendReaderFact("ID · " + (displayId(selectedReaderNode) || "无稳定 ID"));
+        appendReaderFact("正文 · " + body.length + " 字符");
+        appendReaderFact("来源 · " + readerNodeOrigin(selectedReaderNode));
+        if (body) {
+          renderMarkdownContent(readerDocumentContent, body);
+        } else {
+          clear(readerDocumentContent);
+          readerDocumentContent.textContent = "（此需求节点尚未填写正文。）";
+        }
+        readerDocumentContent.classList.toggle("is-empty", !body);
+        renderReaderEvidence();
+      }
+
+      function selectReaderNode(node) {
+        selectedReaderNode = node;
+        renderReaderNodeList();
+        renderReaderNode();
+      }
+
+      function refreshReaderNodes() {
+        const requestId = ++readerRequest;
+        clear(readerDocumentList);
+        appendReaderEmpty("正在读取需求节点…");
+        const query = new URLSearchParams({ relationship_scope: "structural" });
+        return fetch((config.apiBase || "") + "/api/graph?" + query.toString()).then(function (response) {
+          if (!response.ok) throw new Error("无法读取需求节点（HTTP " + response.status + "）。");
+          return response.json();
+        }).then(function (value) {
+          const payload = value && value.structuredContent ? value.structuredContent : value;
+          if (requestId !== readerRequest || !payload || !Array.isArray(payload.nodes)) return;
+          readerNodes = payload.nodes;
+          const previousKey = readerNodeKey(selectedReaderNode);
+          selectedReaderNode = readerNodes.find(function (node) { return readerNodeKey(node) === previousKey; }) || readerNodes[0] || null;
+          renderReaderNodeList();
+          renderReaderNode();
+        }).catch(function () {
+          if (requestId !== readerRequest) return;
+          readerNodes = [];
+          selectedReaderNode = null;
+          clear(readerDocumentList);
+          appendReaderEmpty("读取需求节点失败，请确认本地 Requirement Graph 服务仍在运行。");
+          renderReaderNode();
+        });
+      }
+
+      function setView(mode) {
+        viewMode = mode === "reader" ? "reader" : "map";
+        const readerActive = viewMode === "reader";
+        readerView.hidden = !readerActive;
+        mapView.hidden = readerActive;
+        toolbar.hidden = readerActive;
+        legend.hidden = readerActive;
+        mapViewControl.classList.toggle("is-active", !readerActive);
+        mapViewControl.setAttribute("aria-pressed", String(!readerActive));
+        readerViewControl.classList.toggle("is-active", readerActive);
+        readerViewControl.setAttribute("aria-pressed", String(readerActive));
+        if (readerActive) {
+          trail.textContent = "节点阅读 · 直接查看拆分后的节点正文与原文证据。";
+          refreshReaderNodes();
+        } else {
+          resetCamera();
+        }
+      }
+
+      function filteredNodes() {
+        const term = search.value.trim().toLowerCase();
+        return graph.nodes.filter(function (node) {
+          if (!term) return true;
+          return [node.label, node.title, node.kind, node.sourcePath, node.body, displayId(node)].some(function (value) {
+            return text(value).toLowerCase().includes(term);
+          });
+        });
+      }
+
+      function visibleGraph() {
+        const options = { depth: layerDepth.value, expandedIds: expandedIds, collapsedIds: collapsedIds };
+        if (search.value.trim()) options.matchingIds = filteredNodes().map(function (node) { return node.id; });
+        if (focusedId) {
+          const nearby = new Set([focusedId]);
+          graph.edges.forEach(function (edge) {
+            if (edge.source === focusedId) nearby.add(edge.target);
+            if (edge.target === focusedId) nearby.add(edge.source);
+          });
+          options.matchingIds = options.matchingIds
+            ? options.matchingIds.filter(function (id) { return nearby.has(id); }) : Array.from(nearby);
+        }
+        return window.RequirementGraphHierarchy.projectHierarchy(graph.nodes, graph.edges, options);
+      }
+
+      function emptyHierarchy(nodes) {
+        return {
+          parentByChild: new Map(),
+          childrenByParent: new Map(),
+          rootIds: nodes.map(function (node) { return node.id; }),
+          parentEdgeIds: new Set(),
+          ambiguousNodeIds: new Set(),
+          cyclicNodeIds: new Set()
+        };
+      }
+
+      function deriveHierarchy(nodes, edges) {
+        const api = window.RequirementGraphHierarchy;
+        if (api && typeof api.deriveSingleParentHierarchy === "function") {
+          return api.deriveSingleParentHierarchy(nodes, edges);
+        }
+        return emptyHierarchy(nodes);
+      }
+
+      function hierarchyEdgeIds(hierarchy) {
+        return hierarchy && hierarchy.parentEdgeIds instanceof Set ? hierarchy.parentEdgeIds : new Set();
+      }
+
+      function isHierarchyEdge(edge, hierarchy) {
+        return hierarchyEdgeIds(hierarchy).has(String(edge && edge.id));
+      }
+
+      function rankedDisplayedEdges(nodes, edges) {
+        if (nodes.length <= 24 || edges.length <= Math.max(40, nodes.length * 2)) return edges;
+        const limit = Math.min(90, Math.max(40, nodes.length * 2));
+        const ranked = edges.slice().sort(function (left, right) {
+          return edgeWeight(right) - edgeWeight(left) || String(left.id).localeCompare(String(right.id));
+        });
+        const selectedEdges = selectedId ? ranked.filter(function (edge) {
+          return edge.source === selectedId || edge.target === selectedId;
+        }) : [];
+        const selectedIds = new Set(selectedEdges.map(function (edge) { return edge.id; }));
+        return selectedEdges.concat(ranked.filter(function (edge) {
+          return !selectedIds.has(edge.id);
+        }).slice(0, Math.max(0, limit - selectedEdges.length)));
+      }
+
+      function displayedEdges(nodes, edges, hierarchy) {
+        const hierarchyEdges = edges.filter(function (edge) { return isHierarchyEdge(edge, hierarchy); });
+        const crossEdges = edges.filter(function (edge) { return !isHierarchyEdge(edge, hierarchy); });
+        if (showCrossRelations) return hierarchyEdges.concat(crossEdges);
+        return hierarchyEdges;
+      }
+
+      function dimensions() {
+        const bounds = svg.getBoundingClientRect();
+        return {
+          width: Math.max(320, Math.round(bounds.width || 760)),
+          height: Math.max(360, Math.round(bounds.height || 460))
+        };
+      }
+
+      function visualUnits(value) {
+        return Array.from(text(value)).reduce(function (total, character) {
+          return total + (/[\u1100-\u11ff\u2e80-\u9fff\uf900-\ufaff\uff00-\uffef]/.test(character) ? 1.62 : 1);
+        }, 0);
+      }
+
+      function clipByUnits(value, maximum) {
+        const source = text(value);
+        let result = "";
+        let units = 0;
+        for (const character of Array.from(source)) {
+          const next = /[\u1100-\u11ff\u2e80-\u9fff\uf900-\ufaff\uff00-\uffef]/.test(character) ? 1.62 : 1;
+          if (units + next > maximum) return result + "…";
+          result += character;
+          units += next;
+        }
+        return result;
+      }
+
+      function nodeCard(node) {
+        const rawTitle = text(node.title || node.label || displayId(node)) || displayId(node);
+        const rawMeta = [text(node.kind || "requirement"), displayId(node)].filter(Boolean).join(" · ");
+        const width = Math.max(180, Math.min(300, Math.ceil(Math.max(
+          visualUnits(rawTitle) * 8.1 + 56,
+          visualUnits(rawMeta) * 5.9 + 24
+        ))));
+        return {
+          width: width,
+          height: 40,
+          title: clipByUnits(rawTitle, Math.max(8, (width - 56) / 8.1)),
+          meta: clipByUnits(rawMeta, Math.max(10, (width - 56) / 5.9))
+        };
+      }
+
+      function gridPositions(nodes, size) {
+        const result = new Map();
+        const items = nodes.slice().sort(function (left, right) {
+          return (left.label || left.id).localeCompare(right.label || right.id);
+        });
+        const columns = Math.max(1, Math.ceil(Math.sqrt(items.length || 1)));
+        const rows = Math.max(1, Math.ceil(items.length / columns));
+        items.forEach(function (node, index) {
+          const column = index % columns;
+          const row = Math.floor(index / columns);
+          result.set(node.id, {
+            x: size.width * (0.08 + 0.84 * ((column + 0.5) / columns)),
+            y: size.height * ((row + 0.5) / rows)
+          });
+        });
+        return result;
+      }
+
+      function layoutHierarchy(nodes, hierarchy) {
+        return window.RequirementGraphHierarchy.layoutHierarchySubtrees(nodes, hierarchy, nodeCard);
+      }
+
+      function layoutVisibleGraph(nodes, edges, size, hierarchy) {
+        return layoutHierarchy(nodes, hierarchy);
+      }
+
+      function edgeEndpoint(point, target, node) {
+        const dx = target.x - point.x;
+        const dy = target.y - point.y;
+        if (!dx && !dy) return point;
+        const card = nodeCard(node);
+        const byX = dx ? card.width / 2 / Math.abs(dx) : Infinity;
+        const byY = dy ? card.height / 2 / Math.abs(dy) : Infinity;
+        const factor = Math.min(byX, byY);
+        return { x: point.x + dx * factor, y: point.y + dy * factor };
+      }
+
+      function applyCamera() {
+        camera.setAttribute("transform", "translate(" + cameraState.x + " " + cameraState.y + ") scale(" + cameraState.scale + ")");
+      }
+
+      function describeNode(node, edges, nodeById) {
+        clear(detailRelations);
+        detailRead.hidden = !node;
+        if (!node) {
+          layout.classList.remove("has-selection");
+          detailTitle.textContent = "未选择节点";
+          detailBody.textContent = "单击节点查看关系，双击节点阅读正文与原文证据。";
+          detailRelations.hidden = true;
+          detailMeta.hidden = true;
+          return;
+        }
+        layout.classList.add("has-selection");
+        detailTitle.textContent = node.title || node.label || node.id;
+        const related = edges.filter(function (edge) { return edge.source === node.id || edge.target === node.id; });
+        const facts = [
+          "需求图谱",
+          node.kind ? "类型：" + node.kind : null,
+          node.sourcePath ? "来源：" + node.sourcePath : null,
+          related.length ? "可见关系：" + related.length : null
+        ].filter(Boolean);
+        detailBody.textContent = facts.join(" · ");
+        detailRelations.hidden = !related.length;
+        related.forEach(function (edge) {
+          const outgoing = edge.source === node.id;
+          const other = nodeById.get(outgoing ? edge.target : edge.source);
+          if (!other) return;
+          const item = document.createElement("button");
+          item.type = "button";
+          item.className = "relation-link";
+          const provenance = edge.provenance === "labeled_markdown" ? " · 文档标签识别" : "";
+          item.textContent = (outgoing ? "→ " : "← ") + edge.relationType + " · " + (other.label || other.id) + provenance;
+          item.addEventListener("click", function () { setSelected(other.id); });
+          detailRelations.appendChild(item);
+        });
+        detailMeta.hidden = true;
+      }
+
+      function setSelected(id, options) {
+        if (!options || !options.preserveMapClick) lastMapNodeClick = null;
+        selectedId = id;
+        if (id) rememberSelection(id);
+        focusedId = null;
+        focus.hidden = !id;
+        focus.textContent = "聚焦关联";
+        render();
+      }
+
+      function openReaderForNode(id) {
+        const node = graph.nodes.find(function (item) { return item.id === id; });
+        if (!node) return;
+        lastMapNodeClick = null;
+        selectedId = id;
+        focusedId = null;
+        rememberSelection(id);
+        selectedReaderNode = node;
+        readerDocumentSearch.value = "";
+        setView("reader");
+      }
+
+      function toggleBranch(id, visible) {
+        if (visible.searchActive) return;
+        lastMapNodeClick = null;
+        pendingToggleFocusId = id;
+        const children = visible.hierarchy.childrenByParent.get(id) || [];
+        const isExpanded = children.some(function (childId) { return visible.visibleIds.has(childId); });
+        if (isExpanded) {
+          collapsedIds.add(id);
+          expandedIds.delete(id);
+          let current = selectedId;
+          while (current && current !== id) current = visible.hierarchy.parentByChild.get(current);
+          if (current === id) selectedId = id;
+        } else {
+          collapsedIds.delete(id);
+          expandedIds.add(id);
+        }
+        resetCamera();
+      }
+
+      function render() {
+        if (viewMode !== "map") return;
+        const visible = visibleGraph();
+        const nodes = visible.nodes;
+        const allEdges = visible.edges;
+        const hierarchy = visible.hierarchy;
+        const edges = displayedEdges(nodes, allEdges, hierarchy);
+        if (nodes.some(function (node) { return !positions.has(node.id); })) {
+          positions = layoutVisibleGraph(nodes, allEdges, dimensions(), hierarchy);
+        }
+        clear(edgesLayer);
+        clear(nodesLayer);
+        const nodeById = new Map(nodes.map(function (node) { return [node.id, node]; }));
+        if (selectedId && !nodeById.has(selectedId)) {
+          selectedId = null;
+          focusedId = null;
+        }
+        if (!selectedId && viewMode === "reader" && nodes.length) {
+          selectedId = nodes[0].id;
+          rememberSelection(selectedId);
+        }
+        const selectedNeighbors = new Set();
+        if (selectedId) {
+          allEdges.forEach(function (edge) {
+            if (edge.source === selectedId) selectedNeighbors.add(edge.target);
+            if (edge.target === selectedId) selectedNeighbors.add(edge.source);
+          });
+        }
+        edges.forEach(function (edge) {
+          const from = positions.get(edge.source);
+          const to = positions.get(edge.target);
+          const fromNode = nodeById.get(edge.source);
+          const toNode = nodeById.get(edge.target);
+          if (!from || !to || !fromNode || !toNode) return;
+          const start = edgeEndpoint(from, to, fromNode);
+          const end = edgeEndpoint(to, from, toNode);
+          const hierarchyEdge = isHierarchyEdge(edge, hierarchy);
+          const lineAttributes = {
+            x1: start.x,
+            y1: start.y,
+            x2: end.x,
+            y2: end.y,
+            class: "edge" + (hierarchyEdge ? " hierarchy" : " cross") + (edge.isWeak ? " weak" : ""),
+            "data-weight": Math.min(4, Math.round(edge.weight || 1))
+          };
+          if (hierarchyEdge) {
+            const parentX = to.x + nodeCard(toNode).width / 2;
+            const childX = from.x - nodeCard(fromNode).width / 2;
+            const bendX = (parentX + childX) / 2;
+            lineAttributes.d = "M " + parentX + " " + to.y + " H " + bendX + " V " + from.y + " H " + childX;
+            lineAttributes.fill = "none";
+          }
+          const line = element(hierarchyEdge ? "path" : "line", lineAttributes);
+          if (selectedId && edge.source !== selectedId && edge.target !== selectedId) line.classList.add("dimmed");
+          const title = element("title");
+          title.textContent = edge.relationType + (edge.weight > 1 ? " × " + edge.weight : "");
+          line.appendChild(title);
+          edgesLayer.appendChild(line);
+        });
+        nodes.forEach(function (node) {
+          const point = positions.get(node.id);
+          if (!point) return;
+          const card = nodeCard(node);
+          const children = hierarchy.childrenByParent.get(node.id) || [];
+          const isExpanded = children.some(function (childId) { return visible.visibleIds.has(childId); });
+          const hiddenCount = visible.hiddenDescendantCountById.get(node.id) || 0;
+          const group = element("g", {
+            class: "node" + (node.id === selectedId ? " selected" : ""),
+            transform: "translate(" + point.x + " " + point.y + ")",
+            role: "button",
+            tabindex: "0",
+            "aria-label": node.title || node.label || node.id,
+            "aria-description": "单击查看关系；双击阅读正文"
+          });
+          if (selectedId && node.id !== selectedId && !selectedNeighbors.has(node.id)) group.classList.add("dimmed");
+          if (visible.searchActive && !visible.matchingIds.has(node.id)) group.classList.add("search-context");
+          const shape = element("rect", {
+            class: "shape node-card",
+            "data-node-shape": "card",
+            x: -card.width / 2,
+            y: -card.height / 2,
+            width: card.width,
+            height: card.height,
+            rx: 0
+          });
+          const title = element("title");
+          title.textContent = (node.title || node.label || node.id) + " · " + node.kind
+            + (children.length ? " · " + children.length + " 个直属子项 · " + hiddenCount + " 个后代已折叠" : "")
+            + " · 单击查看关系，双击阅读正文";
+          const titleText = element("text", {
+            class: "node-title",
+            x: -card.width / 2 + 10,
+            y: -4
+          });
+          titleText.textContent = card.title;
+          const metaText = element("text", {
+            class: "node-meta",
+            x: -card.width / 2 + 10,
+            y: 12
+          });
+          metaText.textContent = children.length
+            ? "L" + visible.depthById.get(node.id) + " · " + children.length + " 个子项" + (hiddenCount ? " · 折叠 " + hiddenCount + " 项" : " · 已展开")
+            : card.meta;
+          group.appendChild(shape);
+          group.appendChild(title);
+          group.appendChild(titleText);
+          group.appendChild(metaText);
+          group.addEventListener("keydown", function (event) {
+            if (children.length && ((event.key === "ArrowRight" && !isExpanded) || (event.key === "ArrowLeft" && isExpanded))) {
+              event.preventDefault();
+              toggleBranch(node.id, visible);
+            } else if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              setSelected(node.id);
+            }
+          });
+          group.addEventListener("pointerdown", function (event) {
+            event.stopPropagation();
+            const current = positions.get(node.id);
+            drag = {
+              id: node.id,
+              pointerId: event.pointerId,
+              startX: event.clientX,
+              startY: event.clientY,
+              originX: current.x,
+              originY: current.y,
+              moved: false
+            };
+            svg.setPointerCapture(event.pointerId);
+          });
+          nodesLayer.appendChild(group);
+          if (children.length) {
+            const toggle = element("g", {
+              class: "node-toggle",
+              transform: "translate(" + point.x + " " + point.y + ")",
+              role: "button", tabindex: "0",
+              "aria-label": (isExpanded ? "收起分支：" : "展开下一层：") + (node.title || node.label || node.id),
+              "aria-expanded": String(isExpanded),
+              "aria-disabled": String(visible.searchActive)
+            });
+            toggle.appendChild(element("rect", { x: card.width / 2 - 31, y: -14, width: 25, height: 28, rx: 0 }));
+            const toggleText = element("text", { x: card.width / 2 - 18.5, y: 5, "text-anchor": "middle" });
+            toggleText.textContent = isExpanded ? "−" : "+";
+            toggle.appendChild(toggleText);
+            const toggleTitle = element("title");
+            toggleTitle.textContent = visible.searchActive ? "筛选期间保留匹配路径；清除筛选后可展开或收起。" : (isExpanded ? "收起所有后代" : "展开下一层");
+            toggle.appendChild(toggleTitle);
+            toggle.addEventListener("pointerdown", function (event) { event.stopPropagation(); });
+            toggle.addEventListener("click", function (event) { event.stopPropagation(); toggleBranch(node.id, visible); });
+            toggle.addEventListener("keydown", function (event) {
+              if (event.key === "Enter" || event.key === " ") { event.preventDefault(); event.stopPropagation(); toggleBranch(node.id, visible); }
+            });
+            nodesLayer.appendChild(toggle);
+            if (pendingToggleFocusId === node.id && typeof toggle.focus === "function") {
+              toggle.focus({ preventScroll: true });
+              pendingToggleFocusId = null;
+            }
+          }
+        });
+        empty.hidden = Boolean(nodes.length);
+        if (!nodes.length) {
+          empty.textContent = graph.warnings && graph.warnings.length ? graph.warnings.join(" ") : "当前筛选没有可显示的节点。";
+        }
+        const requirement = graph.sources && graph.sources[0];
+        const hiddenReferences = requirement && Number(requirement.hiddenReferenceEdges || 0);
+        const noStructuralRequirementEdges = relationshipScope.value === "structural" && !graph.edges.some(function (edge) {
+          return edge.sourceKind === "requirements";
+        });
+        const canShowReferences = Boolean(hiddenReferences && noStructuralRequirementEdges);
+        showReferences.hidden = !canShowReferences;
+        if (canShowReferences) showReferences.textContent = "显示 " + hiddenReferences + " 条文档引用";
+        const parentEdgeIds = hierarchyEdgeIds(hierarchy);
+        const hierarchyEdges = allEdges.filter(function (edge) { return isHierarchyEdge(edge, hierarchy); });
+        const crossEdgeCount = allEdges.length - hierarchyEdges.length;
+        const displayedCrossEdgeCount = edges.length - hierarchyEdges.length;
+        showCrossRelationsControl.hidden = !crossEdgeCount;
+        if (!showCrossRelationsControl.hidden) {
+          showCrossRelationsControl.textContent = showCrossRelations ? "隐藏交叉关系" : "显示交叉关系";
+        }
+        const edgeSummary = hierarchyEdges.length + " 条父子关系"
+          + (crossEdgeCount ? " · " + (showCrossRelations ? "显示 " + displayedCrossEdgeCount : "隐藏 " + crossEdgeCount) + " 条交叉关系" : "");
+        const searchSummary = visible.searchActive ? " · 匹配 " + visible.matchingIds.size + " 项（含祖先路径）" : " · 点击＋逐层展开";
+        summary.textContent = "显示 " + nodes.length + " / " + graph.nodes.length + " 节点 · " + edgeSummary + searchSummary
+          + (canShowReferences ? " · 尚无结构关系，已隐藏 " + hiddenReferences + " 条文档引用" : "");
+        const selected = nodeById.get(selectedId);
+        focus.hidden = !selected;
+        if (selected) focus.textContent = focusedId ? "返回总览" : "聚焦关联";
+        describeNode(selected, allEdges, nodeById);
+        renderTrail(nodeById);
+        applyCamera();
+      }
+
+      function resetCamera() {
+        const size = dimensions();
+        cameraState = { x: 0, y: 0, scale: 1 };
+        const visible = visibleGraph();
+        const nodes = visible.nodes;
+        const hierarchy = visible.hierarchy;
+        positions = layoutVisibleGraph(nodes, visible.edges, size, hierarchy);
+        if (nodes.length) {
+          const bounds = nodes.map(function (node) {
+            const point = positions.get(node.id);
+            const card = nodeCard(node);
+            return {
+              minX: point.x - card.width / 2,
+              maxX: point.x + card.width / 2,
+              minY: point.y - card.height / 2,
+              maxY: point.y + card.height / 2
+            };
+          });
+          const minX = Math.min.apply(null, bounds.map(function (item) { return item.minX; }));
+          const maxX = Math.max.apply(null, bounds.map(function (item) { return item.maxX; }));
+          const minY = Math.min.apply(null, bounds.map(function (item) { return item.minY; }));
+          const maxY = Math.max.apply(null, bounds.map(function (item) { return item.maxY; }));
+          const width = Math.max(180, maxX - minX + 88);
+          const height = Math.max(160, maxY - minY + 88);
+          const scale = Math.min(1.15, size.width / width, size.height / height);
+          cameraState.scale = Math.max(0.35, scale);
+          cameraState.x = (size.width - (minX + maxX) * cameraState.scale) / 2;
+          cameraState.y = (size.height - (minY + maxY) * cameraState.scale) / 2;
+        }
+        render();
+      }
+
+      function loadGraph(value) {
+        const candidate = value && value.structuredContent ? value.structuredContent : value;
+        if (!candidate || !Array.isArray(candidate.nodes) || !Array.isArray(candidate.edges)) return;
+        graph = candidate;
+        relationshipScope.value = graph.relationshipScope || "structural";
+        selectedId = null;
+        focusedId = null;
+        showCrossRelations = false;
+        expandedIds.clear();
+        collapsedIds.clear();
+        selectionTrail = [];
+        projectLabel.textContent = projectName(graph.projectPath);
+        focus.hidden = true;
+        sync.hidden = !(graph.sources || []).some(function (source) {
+          return source.source === "requirements" && source.available;
+        });
+        resetCamera();
+      }
+
+      function refreshGraph() {
+        refresh.disabled = true;
+        const query = new URLSearchParams({ relationship_scope: relationshipScope.value });
+        return fetch((config.apiBase || "") + "/api/graph?" + query.toString()).then(function (response) {
+          if (!response.ok) throw new Error("无法读取本地图谱（HTTP " + response.status + "）。");
+          return response.json();
+        }).then(loadGraph).catch(function () {
+          summary.textContent = "刷新失败，请确认本地 Requirement Graph 服务仍在运行。";
+        }).finally(function () {
+          refresh.disabled = false;
+        });
+      }
+
+      function syncGraph() {
+        sync.disabled = true;
+        return fetch((config.apiBase || "") + "/api/sync", {
+          method: "POST",
+          headers: { "X-Requirement-Graph-Token": config.csrfToken || "" }
+        }).then(function (response) {
+          if (!response.ok) throw new Error("无法同步本地图谱（HTTP " + response.status + "）。");
+          return response.json();
+        }).then(refreshGraph).catch(function () {
+          summary.textContent = "重新识别失败，请确认此项目存在可同步的已导入文档。";
+        }).finally(function () {
+          sync.disabled = false;
+        });
+      }
+
+      mapViewControl.addEventListener("click", function () { setView("map"); });
+      readerViewControl.addEventListener("click", function () { setView("reader"); });
+      readerSearch.addEventListener("click", function () {
+        const target = viewMode === "reader" ? readerDocumentSearch : search;
+        target.focus();
+        target.select();
+      });
+      readerDocumentSearch.addEventListener("input", function () {
+        if (readerSearchTimer) window.clearTimeout(readerSearchTimer);
+        readerSearchTimer = window.setTimeout(function () {
+          const visibleNodes = filteredReaderNodes();
+          if (!visibleNodes.some(function (node) { return selectedReaderNode && readerNodeKey(node) === readerNodeKey(selectedReaderNode); })) {
+            selectedReaderNode = visibleNodes[0] || null;
+          }
+          renderReaderNodeList();
+          renderReaderNode();
+        }, 120);
+      });
+      relationshipScope.addEventListener("change", refreshGraph);
+      layerDepth.addEventListener("change", function () {
+        expandedIds.clear();
+        collapsedIds.clear();
+        focusedId = null;
+        resetCamera();
+      });
+      detailRead.addEventListener("click", function () {
+        openReaderForNode(selectedId);
+      });
+      search.addEventListener("input", function () {
+        if (searchTimer) window.clearTimeout(searchTimer);
+        searchTimer = window.setTimeout(function () {
+          const visible = visibleGraph();
+          if (visible.matchingIds && visible.matchingIds.size === 1) {
+            selectedId = Array.from(visible.matchingIds)[0];
+            rememberSelection(selectedId);
+          }
+          resetCamera();
+        }, 120);
+      });
+      window.addEventListener("keydown", function (event) {
+        const target = event.target;
+        const editing = target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
+        const searchTarget = viewMode === "reader" ? readerDocumentSearch : search;
+        if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+          event.preventDefault();
+          searchTarget.focus();
+          searchTarget.select();
+        } else if (event.key === "/" && !editing) {
+          event.preventDefault();
+          searchTarget.focus();
+        }
+      });
+      fit.addEventListener("click", resetCamera);
+      focus.addEventListener("click", function () {
+        if (!selectedId) return;
+        focusedId = focusedId ? null : selectedId;
+        resetCamera();
+      });
+      showCrossRelationsControl.addEventListener("click", function () {
+        showCrossRelations = !showCrossRelations;
+        render();
+      });
+      sync.addEventListener("click", syncGraph);
+      refresh.addEventListener("click", refreshGraph);
+      showReferences.addEventListener("click", function () {
+        relationshipScope.value = "all";
+        refreshGraph();
+      });
+
+      svg.addEventListener("wheel", function (event) {
+        event.preventDefault();
+        const factor = event.deltaY < 0 ? 1.12 : 0.89;
+        cameraState.scale = Math.max(0.25, Math.min(3, cameraState.scale * factor));
+        applyCamera();
+      }, { passive: false });
+      svg.addEventListener("pointerdown", function (event) {
+        if (event.target !== svg) return;
+        lastMapNodeClick = null;
+        setSelected(null);
+        pan = {
+          pointerId: event.pointerId,
+          x: event.clientX,
+          y: event.clientY,
+          originX: cameraState.x,
+          originY: cameraState.y
+        };
+        svg.classList.add("is-panning");
+        svg.setPointerCapture(event.pointerId);
+      });
+      svg.addEventListener("pointermove", function (event) {
+        if (drag && event.pointerId === drag.pointerId) {
+          const screenDx = event.clientX - drag.startX;
+          const screenDy = event.clientY - drag.startY;
+          const dx = screenDx / cameraState.scale;
+          const dy = screenDy / cameraState.scale;
+          if (Math.hypot(screenDx, screenDy) > 5) drag.moved = true;
+          positions.set(drag.id, { x: drag.originX + dx, y: drag.originY + dy });
+          render();
+          return;
+        }
+        if (pan && event.pointerId === pan.pointerId) {
+          cameraState.x = pan.originX + event.clientX - pan.x;
+          cameraState.y = pan.originY + event.clientY - pan.y;
+          applyCamera();
+        }
+      });
+      function releasePointer(event) {
+        if (drag && event.pointerId === drag.pointerId) {
+          const completedDrag = drag;
+          drag = null;
+          if (completedDrag.moved) {
+            lastMapNodeClick = null;
+          } else {
+            const timestamp = Number(event.timeStamp);
+            const clickedAt = Number.isFinite(timestamp) && timestamp >= 0 ? timestamp : Date.now();
+            const previous = lastMapNodeClick;
+            const isDoubleClick = previous && previous.id === completedDrag.id
+              && clickedAt >= previous.at && clickedAt - previous.at <= doubleClickWindowMs;
+            if (isDoubleClick) {
+              openReaderForNode(completedDrag.id);
+            } else {
+              lastMapNodeClick = { id: completedDrag.id, at: clickedAt };
+              setSelected(completedDrag.id, { preserveMapClick: true });
+            }
+          }
+        }
+        if (pan && event.pointerId === pan.pointerId) {
+          pan = null;
+          svg.classList.remove("is-panning");
+        }
+      }
+      function cancelPointer(event) {
+        if (drag && event.pointerId === drag.pointerId) {
+          drag = null;
+          lastMapNodeClick = null;
+        }
+        if (pan && event.pointerId === pan.pointerId) {
+          pan = null;
+          svg.classList.remove("is-panning");
+        }
+      }
+      svg.addEventListener("pointerup", releasePointer);
+      svg.addEventListener("pointercancel", cancelPointer);
+      window.addEventListener("resize", function () {
+        if (viewMode === "map") resetCamera();
+      });
+
+      relationshipScope.value = config.relationshipScope || "structural";
+      refreshGraph();
+    })();
+  </script>
+</body>
+</html>

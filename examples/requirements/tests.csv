@@ -1,0 +1,2 @@
+id,title,kind,body,validates
+TEST-AUTH-001,验证码频率限制自动化测试,test,验证一分钟内第四次验证码请求会被拒绝,REQ-AUTH-002

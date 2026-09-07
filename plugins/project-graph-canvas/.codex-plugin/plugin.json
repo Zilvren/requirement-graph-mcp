@@ -1,0 +1,25 @@
+{
+  "name": "project-graph-canvas",
+  "version": "0.1.0+codex.20260902074755",
+  "description": "Optional Requirement Graph web workflow for the separately installed MCP.",
+  "author": {
+    "name": "Zilv"
+  },
+  "interface": {
+    "displayName": "Requirement Graph Web",
+    "shortDescription": "Open a requirements-only local graph webpage.",
+    "longDescription": "An optional Requirement Graph web workflow. It returns a standalone localhost page instead of rendering an MCP App canvas; install Requirement Graph MCP separately in Codex settings.",
+    "developerName": "Zilv",
+    "category": "Productivity",
+    "capabilities": [
+      "Read"
+    ],
+    "defaultPrompt": [
+      "Open this project's Requirement Graph webpage.",
+      "Generate and open the project's requirement graph.",
+      "Show the requirements affected by this change."
+    ],
+    "brandColor": "#7A2230"
+  },
+  "skills": "./skills/"
+}
