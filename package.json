@@ -45,11 +45,13 @@
   },
   "homepage": "https://github.com/Zilvren/requirement-graph-mcp",
   "scripts": {
-    "test": "node test/hierarchy.js && node test/smoke.js && node test/web.js && node test/web-ui.js && node test/web-daemon.js && node test/mcp-web.js",
+    "test": "node test/hierarchy.js && node test/smoke.js && node test/web.js && node test/web-ui.js && node test/web-daemon.js && node test/map-view-state.js && node test/mcp-web.js",
     "test:core": "node test/hierarchy.js && node test/smoke.js",
-    "test:web": "node test/web.js && node test/web-ui.js && node test/web-daemon.js",
+    "test:web": "node test/web.js && node test/web-ui.js && node test/web-daemon.js && node test/map-view-state.js",
     "test:mcp": "node test/mcp-web.js",
-    "prepublishOnly": "npm test"
+    "prepublishOnly": "npm test",
+    "semantic-release": "semantic-release",
+    "semantic-release:dry": "semantic-release --dry-run"
   },
   "devDependencies": {
     "@semantic-release/changelog": "^7.0.0",

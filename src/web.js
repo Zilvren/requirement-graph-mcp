@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const http = require("node:http");
 const { RequirementGraph, projectDbPath } = require("./db");
 const { syncImportedDocuments } = require("./importer");
+const { MAX_STATE_BYTES, readMapViewState, removeMapViewState, writeMapViewState } = require("./map-view-state");
 const { resolveProjectRoot } = require("./project");
 const { listRequirementDocuments, readRequirementDocument } = require("./requirement-web-documents");
 const { buildRequirementWebGraph } = require("./requirement-web-graph");
@@ -35,6 +36,23 @@ function clientError(message) {
   const error = new Error(message);
   error.status = 400;
   return error;
+}
+
+async function readJsonBody(request, maximumBytes) {
+  const chunks = [];
+  let total = 0;
+  for await (const chunk of request) {
+    total += chunk.length;
+    if (total > maximumBytes) throw clientError("Request body is too large.");
+    chunks.push(chunk);
+  }
+  const source = Buffer.concat(chunks).toString("utf8").trim();
+  if (!source) throw clientError("A JSON request body is required.");
+  try {
+    return JSON.parse(source);
+  } catch (error) {
+    throw clientError("Request body must be valid JSON.");
+  }
 }
 
 function graphOptions(searchParams) {
@@ -117,7 +135,7 @@ function createWebHandler(projectRoot, options = {}) {
   const graphDatabase = projectDbPath(projectRoot);
   const host = options.host || DEFAULT_UI_HOST;
   const csrfToken = options.csrfToken;
-  return function handle(request, response) {
+  return async function handle(request, response) {
     const url = new URL(request.url || "/", "http://localhost");
     try {
       if (!requestMatchesHost(request, host)) {
@@ -144,6 +162,23 @@ function createWebHandler(projectRoot, options = {}) {
         if (!document) return writeJson(response, 404, { error: "Document not found." });
         return writeJson(response, 200, { structuredContent: document });
       }
+      if (request.method === "GET" && url.pathname === "/api/map-view-state") {
+        return writeJson(response, 200, { structuredContent: { state: readMapViewState(projectRoot) } });
+      }
+      if (request.method === "PUT" && url.pathname === "/api/map-view-state") {
+        if (!requestMatchesOrigin(request, host) || request.headers["x-requirement-graph-token"] !== csrfToken) {
+          return writeJson(response, 403, { error: "Invalid local UI write request." });
+        }
+        const state = writeMapViewState(projectRoot, await readJsonBody(request, MAX_STATE_BYTES));
+        return writeJson(response, 200, { structuredContent: { state } });
+      }
+      if (request.method === "DELETE" && url.pathname === "/api/map-view-state") {
+        if (!requestMatchesOrigin(request, host) || request.headers["x-requirement-graph-token"] !== csrfToken) {
+          return writeJson(response, 403, { error: "Invalid local UI write request." });
+        }
+        removeMapViewState(projectRoot);
+        return writeJson(response, 200, { structuredContent: { deleted: true } });
+      }
       if (request.method === "POST" && url.pathname === "/api/sync") {
         if (!requestMatchesOrigin(request, host) || request.headers["x-requirement-graph-token"] !== csrfToken) {
           return writeJson(response, 403, { error: "Invalid local UI write request." });
@@ -164,6 +199,7 @@ function createWebHandler(projectRoot, options = {}) {
         "/api/graph": "GET",
         "/api/documents": "GET",
         "/api/document": "GET",
+        "/api/map-view-state": "GET, PUT, DELETE",
         "/api/sync": "POST"
       };
       if (allowedMethods[url.pathname]) {

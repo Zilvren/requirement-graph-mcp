@@ -569,6 +569,7 @@
         </select>
       </label>
       <button id="fit" type="button">适配画布</button>
+      <button id="reset-map-state" type="button" title="清除本项目保存的视图、位置与展开状态">重置地图</button>
       <button id="focus" type="button" hidden>聚焦关联</button>
       <button id="show-cross-relations" type="button" hidden>显示交叉关系</button>
       <button id="sync" type="button" hidden>重新识别关系</button>
@@ -668,6 +669,7 @@
       const search = document.getElementById("search");
       const layerDepth = document.getElementById("layer-depth");
       const fit = document.getElementById("fit");
+      const resetMapState = document.getElementById("reset-map-state");
       const focus = document.getElementById("focus");
       const showCrossRelationsControl = document.getElementById("show-cross-relations");
       const sync = document.getElementById("sync");
@@ -682,6 +684,7 @@
 
       let graph = { nodes: [], edges: [], sources: [], warnings: [] };
       let positions = new Map();
+      let pinnedPositions = new Map();
       let selectedId = null;
       let focusedId = null;
       let cameraState = { x: 0, y: 0, scale: 1 };
@@ -694,7 +697,11 @@
       let selectedReaderNode = null;
       let readerSearchTimer = null;
       let readerRequest = 0;
+      let graphRequest = 0;
       let showCrossRelations = false;
+      let savedMapState = null;
+      let mapStateHydrated = false;
+      let mapStateSaveTimer = null;
       let lastMapNodeClick = null;
       const expandedIds = new Set();
       const collapsedIds = new Set();
@@ -715,6 +722,220 @@
 
       function text(value) {
         return String(value || "").replace(/\s+/g, " ").trim();
+      }
+
+      function mapStateEndpoint() {
+        return (config.apiBase || "") + "/api/map-view-state";
+      }
+
+      function knownNodeIds() {
+        return new Set((graph.nodes || []).map(function (node) { return String(node && node.id || ""); }).filter(Boolean));
+      }
+
+      function validLayerDepth(value) {
+        return ["1", "2", "3", "all"].includes(String(value)) ? String(value) : "2";
+      }
+
+      function validRelationshipScope(value) {
+        return value === "all" ? "all" : "structural";
+      }
+
+      function finiteCoordinate(value, fallback) {
+        return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+      }
+
+      function sortedIds(ids) {
+        return Array.from(ids || []).map(String).filter(Boolean).sort(function (left, right) {
+          return left.localeCompare(right);
+        });
+      }
+
+      // The revision covers every deterministic input to hierarchy placement.
+      // A saved camera is only meaningful when these inputs still match.
+      function layoutRevision() {
+        const visible = visibleGraph();
+        const fingerprint = {
+          algorithm: "hierarchy-layout-v2",
+          relationshipScope: validRelationshipScope(relationshipScope.value),
+          layerDepth: validLayerDepth(layerDepth.value),
+          expandedIds: sortedIds(expandedIds),
+          collapsedIds: sortedIds(collapsedIds),
+          focusedId: focusedId || "",
+          nodes: (graph.nodes || []).map(function (node) {
+            return [String(node.id || ""), text(node.title), text(node.label), text(node.kind)];
+          }).sort(function (left, right) { return left[0].localeCompare(right[0]); }),
+          edges: (graph.edges || []).map(function (edge) {
+            return [String(edge.id || ""), String(edge.source || ""), String(edge.target || ""), String(edge.relationType || "")];
+          }).sort(function (left, right) { return left.join("\u0000").localeCompare(right.join("\u0000")); }),
+          visibleIds: sortedIds(visible.visibleIds),
+          nodePositions: Array.from(pinnedPositions.entries()).map(function (entry) {
+            return [entry[0], entry[1].x, entry[1].y];
+          }).sort(function (left, right) { return left[0].localeCompare(right[0]); })
+        };
+        const source = JSON.stringify(fingerprint);
+        let hash = 2166136261;
+        for (let index = 0; index < source.length; index += 1) {
+          hash ^= source.charCodeAt(index);
+          hash = Math.imul(hash, 16777619);
+        }
+        return "hierarchy-v2-" + (hash >>> 0).toString(16);
+      }
+
+      function readPersistedMapState(raw) {
+        if (!raw || typeof raw !== "object" || Array.isArray(raw) || raw.version !== 1) return null;
+        const rawCamera = raw.camera && typeof raw.camera === "object" ? raw.camera : null;
+        if (!rawCamera) return null;
+        const scale = finiteCoordinate(rawCamera.scale, NaN);
+        if (!Number.isFinite(scale) || scale < 0.25 || scale > 3) return null;
+        const list = function (value) {
+          return Array.isArray(value) ? value.map(String).filter(Boolean).slice(0, 600) : [];
+        };
+        return {
+          layoutRevision: typeof raw.layoutRevision === "string" ? raw.layoutRevision : "",
+          relationshipScope: validRelationshipScope(raw.relationshipScope),
+          layerDepth: validLayerDepth(raw.layerDepth),
+          expandedIds: list(raw.expandedIds),
+          collapsedIds: list(raw.collapsedIds),
+          selectedId: typeof raw.selectedId === "string" ? raw.selectedId : null,
+          focusedId: typeof raw.focusedId === "string" ? raw.focusedId : null,
+          showCrossRelations: Boolean(raw.showCrossRelations),
+          camera: {
+            x: finiteCoordinate(rawCamera.x, 0),
+            y: finiteCoordinate(rawCamera.y, 0),
+            scale: scale
+          },
+          nodePositions: Array.isArray(raw.nodePositions) ? raw.nodePositions.slice(0, 500) : []
+        };
+      }
+
+      function applyMapStatePreferences(state) {
+        if (!state) return;
+        relationshipScope.value = state.relationshipScope;
+        layerDepth.value = state.layerDepth;
+      }
+
+      function reconcileMapState(state) {
+        if (!state) return false;
+        const known = knownNodeIds();
+        const includeKnown = function (id) { return known.has(id); };
+        expandedIds.clear();
+        collapsedIds.clear();
+        state.expandedIds.filter(includeKnown).forEach(function (id) { expandedIds.add(id); });
+        state.collapsedIds.filter(includeKnown).forEach(function (id) {
+          expandedIds.delete(id);
+          collapsedIds.add(id);
+        });
+        selectedId = includeKnown(state.selectedId) ? state.selectedId : null;
+        focusedId = selectedId && includeKnown(state.focusedId) ? state.focusedId : null;
+        const hierarchy = deriveHierarchy(graph.nodes, graph.edges);
+        [selectedId, focusedId].filter(Boolean).forEach(function (id) {
+          let current = id;
+          while (hierarchy.parentByChild.has(current)) {
+            const parentId = hierarchy.parentByChild.get(current);
+            collapsedIds.delete(parentId);
+            expandedIds.add(parentId);
+            current = parentId;
+          }
+        });
+        showCrossRelations = Boolean(state.showCrossRelations);
+        pinnedPositions = new Map();
+        state.nodePositions.forEach(function (entry) {
+          if (!entry || typeof entry !== "object") return;
+          const id = String(entry.id || "");
+          const x = finiteCoordinate(entry.x, NaN);
+          const y = finiteCoordinate(entry.y, NaN);
+          if (known.has(id) && Number.isFinite(x) && Number.isFinite(y)) {
+            pinnedPositions.set(id, { x: x, y: y });
+          }
+        });
+        positions = new Map();
+        if (selectedId) rememberSelection(selectedId);
+        return state.layoutRevision === layoutRevision();
+      }
+
+      function pruneMapStateToKnownNodes() {
+        const known = knownNodeIds();
+        Array.from(expandedIds).forEach(function (id) {
+          if (!known.has(id)) expandedIds.delete(id);
+        });
+        Array.from(collapsedIds).forEach(function (id) {
+          if (!known.has(id)) collapsedIds.delete(id);
+        });
+        Array.from(pinnedPositions.keys()).forEach(function (id) {
+          if (!known.has(id)) pinnedPositions.delete(id);
+        });
+        if (!known.has(selectedId)) selectedId = null;
+        if (!selectedId || !known.has(focusedId)) focusedId = null;
+      }
+
+      function mapStateSnapshot() {
+        const known = knownNodeIds();
+        const idList = function (ids) {
+          return sortedIds(ids).filter(function (id) { return known.has(id); });
+        };
+        const nodePositions = Array.from(pinnedPositions.entries()).filter(function (entry) {
+          return known.has(entry[0]);
+        }).sort(function (left, right) {
+          return left[0].localeCompare(right[0]);
+        }).slice(0, 500).map(function (entry) {
+          return { id: entry[0], x: entry[1].x, y: entry[1].y };
+        });
+        return {
+          version: 1,
+          layoutRevision: layoutRevision(),
+          relationshipScope: validRelationshipScope(relationshipScope.value),
+          layerDepth: validLayerDepth(layerDepth.value),
+          expandedIds: idList(expandedIds),
+          collapsedIds: idList(collapsedIds),
+          selectedId: known.has(selectedId) ? selectedId : null,
+          focusedId: known.has(focusedId) && known.has(selectedId) ? focusedId : null,
+          showCrossRelations: Boolean(showCrossRelations),
+          camera: {
+            x: finiteCoordinate(cameraState.x, 0),
+            y: finiteCoordinate(cameraState.y, 0),
+            scale: Math.max(0.25, Math.min(3, finiteCoordinate(cameraState.scale, 1)))
+          },
+          nodePositions: nodePositions
+        };
+      }
+
+      function persistMapState() {
+        if (!mapStateHydrated || search.value.trim()) return Promise.resolve();
+        return fetch(mapStateEndpoint(), {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Requirement-Graph-Token": config.csrfToken || ""
+          },
+          body: JSON.stringify(mapStateSnapshot())
+        }).then(function (response) {
+          if (!response.ok) throw new Error("无法保存关系地图视图。");
+          return response.json();
+        }).catch(function () {
+          // Persistence is additive: a transient local-server failure must not
+          // prevent graph exploration or discard the in-memory view.
+        });
+      }
+
+      function scheduleMapStateSave() {
+        if (!mapStateHydrated || search.value.trim()) return;
+        if (mapStateSaveTimer) window.clearTimeout(mapStateSaveTimer);
+        mapStateSaveTimer = window.setTimeout(function () {
+          mapStateSaveTimer = null;
+          persistMapState();
+        }, 320);
+      }
+
+      function loadMapState() {
+        return fetch(mapStateEndpoint()).then(function (response) {
+          if (!response.ok) throw new Error("无法读取关系地图视图。");
+          return response.json();
+        }).then(function (value) {
+          const content = value && value.structuredContent ? value.structuredContent : value;
+          return readPersistedMapState(content && content.state);
+        }).catch(function () {
+          return null;
+        });
       }
 
       // Node bodies originate in imported documents and generated requirements.
@@ -1061,6 +1282,33 @@
         return String(node && node.id || "");
       }
 
+      function readerSelectionStorageKey() {
+        const projectPath = text(graph && graph.projectPath || config.projectPath);
+        return projectPath ? "requirement-graph.reader-selection.v1:" + encodeURIComponent(projectPath) : "";
+      }
+
+      function rememberedReaderNodeKey() {
+        const key = readerSelectionStorageKey();
+        if (!key) return "";
+        try {
+          return text(window.localStorage.getItem(key));
+        } catch (error) {
+          // Private browsing or restrictive browser settings must not break the reader.
+          return "";
+        }
+      }
+
+      function rememberReaderNode(node) {
+        const key = readerSelectionStorageKey();
+        const nodeId = readerNodeKey(node);
+        if (!key || !nodeId) return;
+        try {
+          window.localStorage.setItem(key, nodeId);
+        } catch (error) {
+          // The selection remains available for this page even when storage is unavailable.
+        }
+      }
+
       function readerNodeLabel(node) {
         return node.title || node.label || displayId(node) || node.sourcePath || "未命名节点";
       }
@@ -1202,7 +1450,12 @@
       }
 
       function selectReaderNode(node) {
+        if (!node) return;
         selectedReaderNode = node;
+        selectedId = readerNodeKey(node);
+        focusedId = null;
+        rememberSelection(selectedId);
+        rememberReaderNode(node);
         renderReaderNodeList();
         renderReaderNode();
       }
@@ -1219,8 +1472,13 @@
           const payload = value && value.structuredContent ? value.structuredContent : value;
           if (requestId !== readerRequest || !payload || !Array.isArray(payload.nodes)) return;
           readerNodes = payload.nodes;
-          const previousKey = readerNodeKey(selectedReaderNode);
-          selectedReaderNode = readerNodes.find(function (node) { return readerNodeKey(node) === previousKey; }) || readerNodes[0] || null;
+          const preferredKey = readerNodeKey(selectedReaderNode) || rememberedReaderNodeKey();
+          selectedReaderNode = readerNodes.find(function (node) { return readerNodeKey(node) === preferredKey; }) || readerNodes[0] || null;
+          if (selectedReaderNode) {
+            selectedId = readerNodeKey(selectedReaderNode);
+            focusedId = null;
+            rememberSelection(selectedId);
+          }
           renderReaderNodeList();
           renderReaderNode();
         }).catch(function () {
@@ -1248,7 +1506,8 @@
           trail.textContent = "节点阅读 · 直接查看拆分后的节点正文与原文证据。";
           refreshReaderNodes();
         } else {
-          resetCamera();
+          // Switching workbenches must not disturb the map the user just left.
+          render();
         }
       }
 
@@ -1391,7 +1650,12 @@
       }
 
       function layoutVisibleGraph(nodes, edges, size, hierarchy) {
-        return layoutHierarchy(nodes, hierarchy);
+        const map = layoutHierarchy(nodes, hierarchy);
+        nodes.forEach(function (node) {
+          const pinned = pinnedPositions.get(node.id);
+          if (pinned) map.set(node.id, { x: pinned.x, y: pinned.y });
+        });
+        return map;
       }
 
       function edgeEndpoint(point, target, node) {
@@ -1454,6 +1718,7 @@
         focus.hidden = !id;
         focus.textContent = "聚焦关联";
         render();
+        scheduleMapStateSave();
       }
 
       function openReaderForNode(id) {
@@ -1464,7 +1729,9 @@
         focusedId = null;
         rememberSelection(id);
         selectedReaderNode = node;
+        rememberReaderNode(node);
         readerDocumentSearch.value = "";
+        scheduleMapStateSave();
         setView("reader");
       }
 
@@ -1484,7 +1751,9 @@
           collapsedIds.delete(id);
           expandedIds.add(id);
         }
-        resetCamera();
+        // Branch visibility may change, but expanding must preserve the user's pan and zoom.
+        render();
+        scheduleMapStateSave();
       }
 
       function render() {
@@ -1711,35 +1980,88 @@
         render();
       }
 
-      function loadGraph(value) {
+      function loadGraph(value, options) {
         const candidate = value && value.structuredContent ? value.structuredContent : value;
         if (!candidate || !Array.isArray(candidate.nodes) || !Array.isArray(candidate.edges)) return;
+        const loadOptions = options || {};
         graph = candidate;
-        relationshipScope.value = graph.relationshipScope || "structural";
-        selectedId = null;
-        focusedId = null;
-        showCrossRelations = false;
-        expandedIds.clear();
-        collapsedIds.clear();
-        selectionTrail = [];
+        relationshipScope.value = validRelationshipScope(graph.relationshipScope || relationshipScope.value);
         projectLabel.textContent = projectName(graph.projectPath);
         focus.hidden = true;
         sync.hidden = !(graph.sources || []).some(function (source) {
           return source.source === "requirements" && source.available;
         });
-        resetCamera();
+
+        const stateToRestore = loadOptions.stateToRestore || null;
+        const cameraMatchesLayout = stateToRestore && reconcileMapState(stateToRestore);
+        savedMapState = null;
+        if (!stateToRestore) pruneMapStateToKnownNodes();
+        positions = new Map();
+        if (cameraMatchesLayout && !loadOptions.forceFit) {
+          cameraState = {
+            x: stateToRestore.camera.x,
+            y: stateToRestore.camera.y,
+            scale: stateToRestore.camera.scale
+          };
+          render();
+        } else {
+          resetCamera();
+        }
+        if (mapStateHydrated && loadOptions.persist !== false) scheduleMapStateSave();
       }
 
-      function refreshGraph() {
+      function refreshGraph(options) {
+        const refreshOptions = options || {};
+        const stateToRestore = refreshOptions.discardState ? null
+          : (refreshOptions.restoreSavedState ? savedMapState : (mapStateHydrated ? mapStateSnapshot() : null));
+        const requestId = ++graphRequest;
         refresh.disabled = true;
-        const query = new URLSearchParams({ relationship_scope: relationshipScope.value });
+        const query = new URLSearchParams({ relationship_scope: validRelationshipScope(relationshipScope.value) });
         return fetch((config.apiBase || "") + "/api/graph?" + query.toString()).then(function (response) {
           if (!response.ok) throw new Error("无法读取本地图谱（HTTP " + response.status + "）。");
           return response.json();
-        }).then(loadGraph).catch(function () {
-          summary.textContent = "刷新失败，请确认本地 Requirement Graph 服务仍在运行。";
+        }).then(function (value) {
+          if (requestId !== graphRequest) return;
+          loadGraph(value, {
+            stateToRestore: stateToRestore,
+            forceFit: Boolean(refreshOptions.forceFit),
+            persist: refreshOptions.persist
+          });
+        }).catch(function () {
+          if (requestId === graphRequest) summary.textContent = "刷新失败，请确认本地 Requirement Graph 服务仍在运行。";
         }).finally(function () {
-          refresh.disabled = false;
+          if (requestId === graphRequest) refresh.disabled = false;
+        });
+      }
+
+      function clearPersistedMapState() {
+        if (mapStateSaveTimer) {
+          window.clearTimeout(mapStateSaveTimer);
+          mapStateSaveTimer = null;
+        }
+        resetMapState.disabled = true;
+        return fetch(mapStateEndpoint(), {
+          method: "DELETE",
+          headers: { "X-Requirement-Graph-Token": config.csrfToken || "" }
+        }).then(function (response) {
+          if (!response.ok) throw new Error("无法重置关系地图视图。");
+          savedMapState = null;
+          expandedIds.clear();
+          collapsedIds.clear();
+          pinnedPositions = new Map();
+          positions = new Map();
+          selectedId = null;
+          focusedId = null;
+          showCrossRelations = false;
+          selectionTrail = [];
+          search.value = "";
+          relationshipScope.value = validRelationshipScope(config.relationshipScope || "structural");
+          layerDepth.value = "2";
+          return refreshGraph({ discardState: true, forceFit: true, persist: false });
+        }).catch(function () {
+          summary.textContent = "重置失败，请确认本地 Requirement Graph 服务仍在运行。";
+        }).finally(function () {
+          resetMapState.disabled = false;
         });
       }
 
@@ -1782,6 +2104,7 @@
         collapsedIds.clear();
         focusedId = null;
         resetCamera();
+        scheduleMapStateSave();
       });
       detailRead.addEventListener("click", function () {
         openReaderForNode(selectedId);
@@ -1810,15 +2133,21 @@
           searchTarget.focus();
         }
       });
-      fit.addEventListener("click", resetCamera);
+      fit.addEventListener("click", function () {
+        resetCamera();
+        scheduleMapStateSave();
+      });
+      resetMapState.addEventListener("click", clearPersistedMapState);
       focus.addEventListener("click", function () {
         if (!selectedId) return;
         focusedId = focusedId ? null : selectedId;
         resetCamera();
+        scheduleMapStateSave();
       });
       showCrossRelationsControl.addEventListener("click", function () {
         showCrossRelations = !showCrossRelations;
         render();
+        scheduleMapStateSave();
       });
       sync.addEventListener("click", syncGraph);
       refresh.addEventListener("click", refreshGraph);
@@ -1832,6 +2161,7 @@
         const factor = event.deltaY < 0 ? 1.12 : 0.89;
         cameraState.scale = Math.max(0.25, Math.min(3, cameraState.scale * factor));
         applyCamera();
+        scheduleMapStateSave();
       }, { passive: false });
       svg.addEventListener("pointerdown", function (event) {
         if (event.target !== svg) return;
@@ -1854,7 +2184,9 @@
           const dx = screenDx / cameraState.scale;
           const dy = screenDy / cameraState.scale;
           if (Math.hypot(screenDx, screenDy) > 5) drag.moved = true;
-          positions.set(drag.id, { x: drag.originX + dx, y: drag.originY + dy });
+          const point = { x: drag.originX + dx, y: drag.originY + dy };
+          positions.set(drag.id, point);
+          pinnedPositions.set(drag.id, point);
           render();
           return;
         }
@@ -1870,6 +2202,7 @@
           drag = null;
           if (completedDrag.moved) {
             lastMapNodeClick = null;
+            scheduleMapStateSave();
           } else {
             const timestamp = Number(event.timeStamp);
             const clickedAt = Number.isFinite(timestamp) && timestamp >= 0 ? timestamp : Date.now();
@@ -1887,26 +2220,43 @@
         if (pan && event.pointerId === pan.pointerId) {
           pan = null;
           svg.classList.remove("is-panning");
+          scheduleMapStateSave();
         }
       }
       function cancelPointer(event) {
         if (drag && event.pointerId === drag.pointerId) {
+          const wasMoved = drag.moved;
           drag = null;
           lastMapNodeClick = null;
+          if (wasMoved) scheduleMapStateSave();
         }
         if (pan && event.pointerId === pan.pointerId) {
           pan = null;
           svg.classList.remove("is-panning");
+          scheduleMapStateSave();
         }
       }
       svg.addEventListener("pointerup", releasePointer);
       svg.addEventListener("pointercancel", cancelPointer);
       window.addEventListener("resize", function () {
-        if (viewMode === "map") resetCamera();
+        if (viewMode === "map") render();
       });
 
-      relationshipScope.value = config.relationshipScope || "structural";
-      refreshGraph();
+      window.addEventListener("pagehide", function () {
+        if (mapStateSaveTimer) {
+          window.clearTimeout(mapStateSaveTimer);
+          mapStateSaveTimer = null;
+        }
+        persistMapState();
+      });
+
+      relationshipScope.value = validRelationshipScope(config.relationshipScope || "structural");
+      loadMapState().then(function (state) {
+        savedMapState = state;
+        applyMapStatePreferences(state);
+        mapStateHydrated = true;
+        return refreshGraph({ restoreSavedState: true });
+      });
     })();
   </script>
 </body>

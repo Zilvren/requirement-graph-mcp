@@ -85,21 +85,61 @@ async function testLayeredInteractions(html) {
       ["right-leaf", "right", "CHILD_OF"], ["nested", "root", "DERIVES_FROM"],
       ["leaf", "right", "SUPPORTS"]
     ].map(([source, target, relationType], index) => ({ id: String(index), source, target, relationType })),
-    sources: [], warnings: [], relationshipScope: "structural"
+    sources: [], warnings: [], relationshipScope: "structural", projectPath: "D:\\fixture-project"
+  };
+  const storage = new Map();
+  const localStorage = {
+    getItem(key) { return storage.has(key) ? storage.get(key) : null; },
+    setItem(key, value) { storage.set(String(key), String(value)); }
+  };
+  let persistedMapState = null;
+  const fetchStub = async (url, options = {}) => {
+    if (String(url).includes("/api/map-view-state")) {
+      if (options.method === "PUT") {
+        persistedMapState = JSON.parse(options.body);
+        return { ok: true, json: async () => ({ structuredContent: { state: persistedMapState } }) };
+      }
+      if (options.method === "DELETE") {
+        persistedMapState = null;
+        return { ok: true, json: async () => ({ structuredContent: { deleted: true } }) };
+      }
+      return { ok: true, json: async () => ({ structuredContent: { state: persistedMapState } }) };
+    }
+    return { ok: true, json: async () => ({ structuredContent: fixture }) };
   };
   const windowStub = {
     RequirementGraphHierarchy: hierarchyApi, addEventListener() {}, clearTimeout() {},
-    setTimeout(callback) { callback(); return 1; }
+    setTimeout(callback) { callback(); return 1; }, localStorage
   };
   const context = vm.createContext({
     window: windowStub, URLSearchParams, Map, Set,
     document: { getElementById: get, querySelector: () => get("map-view"), createElement: (name) => new StubElement(name), createElementNS: (_, name) => new StubElement(name) },
-    fetch: async () => ({ ok: true, json: async () => ({ structuredContent: fixture }) })
+    fetch: fetchStub
   });
   const script = Array.from(html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)).map((match) => match[1]).find((body) => body.includes("const config = window.__REQUIREMENT_GRAPH_WEB__"));
   assert.ok(script);
   vm.runInContext(script, context, { timeout: 2000 });
   await new Promise(setImmediate);
+  function bootReloadedUi() {
+    const reloadedElements = new Map();
+    const reloadedGet = (id) => {
+      if (!reloadedElements.has(id)) reloadedElements.set(id, new StubElement("DIV"));
+      return reloadedElements.get(id);
+    };
+    reloadedGet("layer-depth").value = "2";
+    reloadedGet("reader-view").hidden = true;
+    const reloadedWindow = {
+      RequirementGraphHierarchy: hierarchyApi, addEventListener() {}, clearTimeout() {},
+      setTimeout(callback) { callback(); return 1; }, localStorage
+    };
+    const reloadedContext = vm.createContext({
+      window: reloadedWindow, URLSearchParams, Map, Set,
+      document: { getElementById: reloadedGet, querySelector: () => reloadedGet("map-view"), createElement: (name) => new StubElement(name), createElementNS: (_, name) => new StubElement(name) },
+      fetch: fetchStub
+    });
+    vm.runInContext(script, reloadedContext, { timeout: 2000 });
+    return reloadedGet;
+  }
   const cards = () => get("nodes").children.filter((item) => /^node(?:\s|$)/.test(item.attributes.class || ""));
   const titles = () => cards().map((item) => item.attributes["aria-label"]).sort();
   const toggle = (id) => get("nodes").children.find((item) => item.attributes.class === "node-toggle" && item.attributes["aria-label"].endsWith("：" + id));
@@ -121,7 +161,10 @@ async function testLayeredInteractions(html) {
   assert.equal(get("reader-view").hidden, true, "a single click must not navigate away from the map");
   assert.equal(root.attributes["aria-description"], "单击查看关系；双击阅读正文");
   assert.equal(toggle("group").attributes["aria-expanded"], "false");
+  get("graph").fire("wheel", { deltaY: -1 });
+  const cameraBeforeToggle = get("camera").attributes.transform;
   toggle("group").fire("click");
+  assert.equal(get("camera").attributes.transform, cameraBeforeToggle, "expanding keeps the user's pan and zoom; only Fit reframes the canvas");
   assert.deepEqual(titles(), ["group", "leaf", "right", "root"]);
   assert.equal(crossEdges().length, 0);
   cards().find((item) => item.attributes["aria-label"] === "leaf").fire("keydown", { key: "Enter" });
@@ -188,6 +231,22 @@ async function testLayeredInteractions(html) {
   assert.equal(descendants(get("reader-document-content"), "TABLE").length, 0, "an incomplete pipe table stays ordinary text");
   assert.match(renderedText(get("reader-document-content")), /字段 \| 说明/);
   assert.match(renderedText(get("reader-document-content")), /这一行缺少第二列/);
+  assert.ok(Array.from(storage.values()).includes("right"), "an explicit reader choice is stored by project");
+  const reloadedGet = bootReloadedUi();
+  await new Promise(setImmediate);
+  assert.ok(persistedMapState, "map interactions are stored through the local map-state API");
+  assert.equal(reloadedGet("layer-depth").value, persistedMapState.layerDepth, "the saved layer preference is restored before rendering");
+  assert.equal(
+    reloadedGet("camera").attributes.transform,
+    "translate(" + persistedMapState.camera.x + " " + persistedMapState.camera.y + ") scale(" + persistedMapState.camera.scale + ")",
+    "an unchanged hierarchy restores the saved camera"
+  );
+  reloadedGet("reader-view-control").fire("click");
+  await new Promise(setImmediate);
+  assert.equal(reloadedGet("reader-document-title").textContent, "right", "the reader restores its saved node after reload");
+  const reloadedSelectedItems = reloadedGet("reader-document-list").children.filter((item) => /\bis-selected\b/.test(item.className || ""));
+  assert.equal(reloadedSelectedItems.length, 1, "the restored node remains selected in the left reader menu");
+  assert.equal(reloadedSelectedItems[0].children[0].textContent, "right");
   const emptyReaderItem = get("reader-document-list").children.find((item) => item.children && item.children[0] && item.children[0].textContent === "root");
   emptyReaderItem.fire("click");
   assert.equal(get("reader-document-content").textContent, "（此需求节点尚未填写正文。）", "empty node bodies keep the plain-text fallback");
@@ -208,6 +267,10 @@ async function testLayeredInteractions(html) {
   get("search").fire("input");
   assert.deepEqual(titles(), []);
   assert.equal(get("empty").hidden, false);
+  get("reset-map-state").fire("click");
+  await new Promise(setImmediate);
+  await new Promise(setImmediate);
+  assert.equal(persistedMapState, null, "Reset map clears the project-local saved view");
 }
 
 async function main() {

@@ -49,7 +49,7 @@ Requirement Graph MCP 是一个 **完全本地运行** 的个人需求与文档�
 - **多种导入格式**：Markdown / TXT / JSON / CSV，Markdown 支持 Frontmatter 与行首标签关系。
 - **确认与提议分级**：明确写出的关系标记为 `confirmed`，语义推断的关系标记为 `proposed` 且置信度 ≤ 0.8，不捏造依赖。
 - **Codex 友好**：MCP 服务主动声明“需求/文档/依赖/影响分析请自动使用图谱”，日常只需自然语言提问。
-- **网页可视化**：关系地图可缩放、拖拽、搜索、分层展开；节点阅读页展示正文与原文证据。
+- **网页可视化**：关系地图可缩放、拖拽、搜索、分层展开，并按项目自动保存地图视图；节点阅读页展示正文与原文证据。
 
 ## 支持的导入格式
 
@@ -242,6 +242,12 @@ localhost 地址。关系地图可缩放、拖拽、搜索，点击节点可查�
 3 层需求或全部层级；节点的 ＋/− 可展开下一层或收起分支；搜索会跨层查找并保留匹配项的
 祖先路径，清除搜索后恢复先前展开状态。交叉关系默认隐藏，按需点击“显示交叉关系”。
 
+关系地图会自动保存到项目本机的 `.requirement-graph\map-view-state.json`：包括关系范围、
+显示层级、展开/收起、选中节点、交叉关系开关、画布视角及手动拖动过的节点位置。它不改动
+需求节点、关系、原始文档或 SQLite 图谱数据；服务重启或端口变化后仍可恢复。图谱结构变化时，
+仍有效的偏好和手动位置会保留，但画布会重新适配；搜索词不会被保存。点击“重置地图”可清除
+该项目保存的地图视图，停止网页服务不会清除它。
+
 不要用 `file://` 直接打开网页文件——它没有本地图谱 API，会停在“正在读取需求图谱”。
 请用上面的 `requirement-graph ui` 启动网页；在 Codex 中则使用 `requirement_graph_open_web`
 返回的地址。
@@ -310,7 +316,7 @@ args = ["serve", "--mcp"]
 ~~~powershell
 npm test
 # 等价于：
-node test/hierarchy.js && node test/smoke.js && node test/web.js && node test/web-ui.js && node test/web-daemon.js && node test/mcp-web.js
+node test/hierarchy.js && node test/smoke.js && node test/web.js && node test/web-ui.js && node test/web-daemon.js && node test/map-view-state.js && node test/mcp-web.js
 ~~~
 
 - `test/smoke.js` — 导入/查询冒烟
@@ -318,6 +324,7 @@ node test/hierarchy.js && node test/smoke.js && node test/web.js && node test/we
 - `test/web.js` — 网页服务
 - `test/web-ui.js` — 网页界面
 - `test/web-daemon.js` — 持久化网页守护进程（启动/复用/停止）
+- `test/map-view-state.js` — 地图视图状态的校验与本地保存
 - `test/mcp-web.js` — MCP 与网页联动
 
 GitHub Actions 已在 Node 22 上运行整套测试（见 `.github/workflows/test.yml`）。

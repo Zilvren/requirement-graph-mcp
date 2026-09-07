@@ -140,8 +140,53 @@ async function main() {
     const wrongGraphMethod = await fetch(ui.url + "api/graph", { method: "POST" });
     assert.equal(wrongGraphMethod.status, 405);
     assert.equal(wrongGraphMethod.headers.get("allow"), "GET");
+    const wrongMapStateMethod = await fetch(ui.url + "api/map-view-state", { method: "POST" });
+    assert.equal(wrongMapStateMethod.status, 405);
+    assert.equal(wrongMapStateMethod.headers.get("allow"), "GET, PUT, DELETE");
     const unknown = await fetch(ui.url + "not-a-route");
     assert.equal(unknown.status, 404);
+
+    const emptyMapState = await fetch(ui.url + "api/map-view-state?project_path=" + encodeURIComponent(os.tmpdir()));
+    assert.equal(emptyMapState.status, 200);
+    assert.equal((await emptyMapState.json()).structuredContent.state, null, "the UI route is fixed to its own project");
+    const mapState = {
+      version: 1,
+      layoutRevision: "layout-v1",
+      relationshipScope: "structural",
+      layerDepth: "2",
+      expandedIds: ["rg:WEB-REQ"],
+      collapsedIds: [],
+      selectedId: "rg:WEB-REQ",
+      focusedId: null,
+      showCrossRelations: false,
+      camera: { x: 50, y: -30, scale: 0.9 },
+      nodePositions: [{ id: "rg:WEB-REQ", x: 120, y: 80 }]
+    };
+    const missingMapToken = await fetch(ui.url + "api/map-view-state", {
+      method: "PUT", body: JSON.stringify(mapState)
+    });
+    assert.equal(missingMapToken.status, 403);
+    const invalidMapBody = await fetch(ui.url + "api/map-view-state", {
+      method: "PUT",
+      headers: { "X-Requirement-Graph-Token": ui.csrfToken, Origin: ui.url.slice(0, -1) },
+      body: "{ invalid"
+    });
+    assert.equal(invalidMapBody.status, 400);
+    const savedMapState = await fetch(ui.url + "api/map-view-state", {
+      method: "PUT",
+      headers: { "X-Requirement-Graph-Token": ui.csrfToken, Origin: ui.url.slice(0, -1) },
+      body: JSON.stringify(mapState)
+    });
+    assert.equal(savedMapState.status, 200);
+    assert.deepEqual((await savedMapState.json()).structuredContent.state, mapState);
+    const restoredMapState = await fetch(ui.url + "api/map-view-state");
+    assert.deepEqual((await restoredMapState.json()).structuredContent.state, mapState);
+    const deletedMapState = await fetch(ui.url + "api/map-view-state", {
+      method: "DELETE",
+      headers: { "X-Requirement-Graph-Token": ui.csrfToken, Origin: ui.url.slice(0, -1) }
+    });
+    assert.equal(deletedMapState.status, 200);
+    assert.equal((await (await fetch(ui.url + "api/map-view-state")).json()).structuredContent.state, null);
 
     const missingToken = await fetch(ui.url + "api/sync", { method: "POST" });
     assert.equal(missingToken.status, 403);

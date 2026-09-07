@@ -13,9 +13,9 @@ jobs:
       # field and setup-node locates pnpm on PATH (pnpm/action-setup reads the
       # pinned version from package.json, so no version input is needed).
       - uses: pnpm/action-setup@v3
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 'lts/*'
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm test

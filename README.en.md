@@ -51,7 +51,7 @@ Nothing leaves your machine except the local web page you run yourself.
 - **Multiple import formats**: Markdown / TXT / JSON / CSV, with Frontmatter and line-label relations for Markdown.
 - **Confirmed vs proposed relations**: explicit relations are `confirmed`; conservative semantic inferences are `proposed` with confidence ≤ 0.8 — no invented dependencies.
 - **Codex-friendly**: the MCP server announces itself for requirement/document/dependency/impact questions — ask in plain language.
-- **Web visualisation**: a zoomable, draggable, searchable relation map with expandable layers, plus a reader view showing node body text and source evidence.
+- **Web visualisation**: a zoomable, draggable, searchable relation map with expandable layers and a per-project saved view, plus a reader view showing node body text and source evidence.
 
 ## Supported import formats
 
@@ -260,6 +260,13 @@ navigation only changes the displayed scope — it never re-splits, merges or de
 ancestor path, and clearing search restores the previous expansion state. Cross-relations are hidden by
 default and shown on demand via “show cross relations”.
 
+The relation map automatically saves a project-local `.requirement-graph\map-view-state.json`: relation
+scope, layer depth, expansion, selection, cross-relation setting, camera and manually dragged node
+positions. It never changes requirement nodes, edges, source documents or the SQLite graph. It survives
+web-server restarts and port changes. When the graph structure changes, valid preferences and manual
+positions remain while the camera is refit; search text is intentionally not saved. “Reset map” clears
+the saved view for that project; stopping the web server does not.
+
 Never open the web page with `file://` — without the local graph API it stalls at “reading the
 requirement graph”. Always start it with `requirement-graph ui`; inside Codex, use the URL returned by
 `requirement_graph_open_web`.
@@ -338,7 +345,7 @@ Self-contained tests with no third-party dependencies (run all of them with `npm
 ~~~powershell
 npm test
 # equivalent to:
-node test/hierarchy.js && node test/smoke.js && node test/web.js && node test/web-ui.js && node test/web-daemon.js && node test/mcp-web.js
+node test/hierarchy.js && node test/smoke.js && node test/web.js && node test/web-ui.js && node test/web-daemon.js && node test/map-view-state.js && node test/mcp-web.js
 ~~~
 
 - `test/smoke.js` — import/query smoke test
@@ -346,6 +353,7 @@ node test/hierarchy.js && node test/smoke.js && node test/web.js && node test/we
 - `test/web.js` — web server
 - `test/web-ui.js` — web UI
 - `test/web-daemon.js` — persistent web-UI daemon (start / reuse / stop)
+- `test/map-view-state.js` — map-view state validation and local persistence
 - `test/mcp-web.js` — MCP and web interplay
 
 GitHub Actions runs the full suite on Node 22 (see `.github/workflows/test.yml`).
