@@ -1,3 +1,10 @@
+# [1.3.0](https://github.com/Zilvren/requirement-graph-mcp/compare/v1.2.0...v1.3.0) (2026-09-07)
+
+
+### Features
+
+* 增加web页面选择项目，和md渲染图片 ([212751d](https://github.com/Zilvren/requirement-graph-mcp/commit/212751d822aa99e34df81e7789ce66e7f72f3d89))
+
 # [1.2.0](https://github.com/Zilvren/requirement-graph-mcp/compare/v1.1.0...v1.2.0) (2026-09-07)
 
 
