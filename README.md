@@ -6,6 +6,7 @@
 
 [English](./README.en.md) · [MIT License](./LICENSE)
 
+[![npm version](https://img.shields.io/npm/v/requirement-graph-mcp)](https://www.npmjs.com/package/requirement-graph-mcp)
 ![Node.js >= 22.5](https://img.shields.io/badge/node-%3E%3D%2022.5-339933)
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue)
 ![No runtime dependencies](https://img.shields.io/badge/runtime%20deps-0-green)
@@ -95,11 +96,13 @@ related_to: [REQ-AUTH-002]
 
 ## 快速开始（本地使用）
 
-需要 Node.js 22.5 或更高版本。没有运行时 npm 依赖。
+包已发布到 npm：[requirement-graph-mcp](https://www.npmjs.com/package/requirement-graph-mcp)。
+**无需克隆源码**，安装后即可使用。需要 Node.js 22.5 或更高版本，没有运行时依赖。
+
+#### 方式一：全局安装（推荐，日常使用与 Codex MCP 都适用）
 
 ~~~powershell
-# 仅第一次：在本项目源码目录执行，注册全局 CLI
-npm link
+npm install -g requirement-graph-mcp
 
 cd D:\Work\my-app
 requirement-graph init
@@ -107,10 +110,19 @@ requirement-graph import docs\requirements
 requirement-graph status
 ~~~
 
+#### 方式二：npx 免安装（试用、脚本、临时环境）
+
+~~~powershell
+cd D:\Work\my-app
+npx requirement-graph-mcp init
+npx requirement-graph-mcp import docs\requirements
+npx requirement-graph-mcp status
+# 等价写法：npx -p requirement-graph-mcp requirement-graph <命令>
+~~~
+
 - `init` 会在当前项目创建 `.requirement-graph\requirements-graph.db`；首次 `import` 也会自动创建它。
   `init` 的用途是显式建立项目图谱并确认位置。
 - 命令可传 `--project` 指定项目根目录，或传 `--db` 使用自定义数据库路径。
-- 发布到 npm 后，`npm link` 将替换为 `npm install -g` 对应包名。
 
 状态目录内会自动生成 `.requirement-graph\.gitignore`，忽略数据库、WAL、缓存与未来本地状态文件，
 只保留这条忽略规则本身。工具不会修改项目根目录的 `.gitignore`；如果你手动改写状态目录中的
@@ -123,11 +135,11 @@ MCP 模式不使用全局数据库：内部会用当前项目根目录定位图�
 无需打开 Codex，也可以直接在浏览器中查看同一份图谱：
 
 ~~~powershell
-# 已执行 npm link 时
+# 全局安装后：
 requirement-graph ui D:\Work\my-app
 
-# 或在本项目源码目录直接运行
-node src\index.js ui D:\Work\my-app
+# 或 npx 免安装：
+npx requirement-graph-mcp ui D:\Work\my-app
 ~~~
 
 命令会打印一个本地地址，例如 `http://127.0.0.1:4747/`。默认从 4747 开始；端口已被
@@ -169,17 +181,18 @@ requirement-graph web stop --project D:\Work\my-app
 
 ## 接入 Codex MCP
 
-先将本项目放到一个固定位置（例如克隆或解压到 `C:\tools\requirement-graph-mcp`），
-再把下面配置加入 `C:\Users\你的用户名\.codex\config.toml`（路径换成实际绝对路径）：
+先全局安装一次（提供 `requirement-graph` 命令；无需克隆源码，也无需 npx——MCP 由 Codex 反复拉起，建议用常驻的全局命令）：
+
+~~~powershell
+npm install -g requirement-graph-mcp
+~~~
+
+再把下面配置加入 `C:\Users\你的用户名\.codex\config.toml`：
 
 ~~~toml
 [mcp_servers.requirement_graph]
-command = "node"
-args = [
-  "C:\\absolute\\path\\to\\requirement-graph-mcp\\src\\index.js",
-  "serve",
-  "--mcp"
-]
+command = "requirement-graph"
+args = ["serve", "--mcp"]
 ~~~
 
 重启 Codex 后，它会显示为可用 MCP。服务会主动告诉 Codex：在需求、文档、依赖和影响分析问题中

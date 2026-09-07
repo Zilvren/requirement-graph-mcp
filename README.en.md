@@ -7,6 +7,7 @@
 
 [中文](./README.md) · [MIT License](./LICENSE)
 
+[![npm version](https://img.shields.io/npm/v/requirement-graph-mcp)](https://www.npmjs.com/package/requirement-graph-mcp)
 ![Node.js >= 22.5](https://img.shields.io/badge/node-%3E%3D%2022.5-339933)
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue)
 ![No runtime dependencies](https://img.shields.io/badge/runtime%20deps-0-green)
@@ -99,11 +100,13 @@ guessed as dependencies; plain links stay low-confidence document references.
 
 ## Quick start (local CLI)
 
-Requires Node.js 22.5+. No runtime npm dependencies.
+The package is published on npm: [requirement-graph-mcp](https://www.npmjs.com/package/requirement-graph-mcp).
+**No source clone needed** — install it and go. Requires Node.js 22.5+; no runtime npm dependencies.
+
+#### Option 1: global install (recommended for daily use and Codex MCP)
 
 ~~~powershell
-# First time only: register the global CLI from this source directory
-npm link
+npm install -g requirement-graph-mcp
 
 cd D:\Work\my-app
 requirement-graph init
@@ -111,10 +114,19 @@ requirement-graph import docs\requirements
 requirement-graph status
 ~~~
 
+#### Option 2: npx without installing (trials, scripts, throwaway environments)
+
+~~~powershell
+cd D:\Work\my-app
+npx requirement-graph-mcp init
+npx requirement-graph-mcp import docs\requirements
+npx requirement-graph-mcp status
+# equivalent: npx -p requirement-graph-mcp requirement-graph <command>
+~~~
+
 - `init` creates `.requirement-graph\requirements-graph.db` in the current project; the first
   `import` also creates it automatically. `init` exists to explicitly set up and confirm the location.
 - Commands accept `--project` for the project root or `--db` for a custom database path.
-- After publishing to npm, `npm link` is replaced by `npm install -g <package>`.
 
 The state directory auto-generates a `.requirement-graph\.gitignore` that ignores the database, WAL,
 caches and future local state files while keeping only that ignore rule itself. The tool never touches
@@ -128,11 +140,11 @@ never mixes between projects.
 You can browse the same graph in a browser without opening Codex:
 
 ~~~powershell
-# When npm link has been run
+# After a global install:
 requirement-graph ui D:\Work\my-app
 
-# Or run directly from this source directory
-node src\index.js ui D:\Work\my-app
+# Or with npx, no install needed:
+npx requirement-graph-mcp ui D:\Work\my-app
 ~~~
 
 The command prints a local address such as `http://127.0.0.1:4747/`. It starts at 4747 and tries the
@@ -177,17 +189,19 @@ with `Ctrl+C`; it shares the same loopback-only web implementation as the MCP da
 
 ## Codex MCP integration
 
-Keep this repository at a fixed location (e.g. cloned to `C:\tools\requirement-graph-mcp`), then add
-the config below to `C:\Users\<you>\.codex\config.toml` with real absolute paths:
+First install the CLI globally once (this provides the `requirement-graph` command; no source clone and
+no npx needed — Codex spawns the MCP process repeatedly, so a resident global command is recommended):
+
+~~~powershell
+npm install -g requirement-graph-mcp
+~~~
+
+Then add the config below to `C:\Users\<you>\.codex\config.toml`:
 
 ~~~toml
 [mcp_servers.requirement_graph]
-command = "node"
-args = [
-  "C:\\absolute\\path\\to\\requirement-graph-mcp\\src\\index.js",
-  "serve",
-  "--mcp"
-]
+command = "requirement-graph"
+args = ["serve", "--mcp"]
 ~~~
 
 After restarting Codex, it shows up as an available MCP. The server tells Codex to automatically use
