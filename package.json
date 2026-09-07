@@ -1,6 +1,6 @@
 {
   "name": "requirement-graph-mcp",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "A local-first requirement & document graph: import Markdown/TXT/JSON/CSV into a per-project SQLite database and query or visualise it through an MCP server and a local web UI.",
   "type": "commonjs",
   "license": "MIT",
