@@ -21,7 +21,8 @@
 - [Supported import formats](#supported-import-formats)
 - [Quick start (local CLI)](#quick-start-local-cli)
 - [Local web UI](#local-web-ui)
-- [Codex MCP integration](#codex-mcp-integration)
+- [Any MCP client integration](#any-mcp-client-integration)
+- [Codex MCP integration](#codex-mcp-integration) (Codex is just an example)
 - [Optional Codex web plugin](#optional-codex-web-plugin)
 - [Graph data principles](#graph-data-principles)
 - [Testing](#testing)
@@ -144,7 +145,7 @@ requirement-graph project use repo-b                 # switch the default projec
 requirement-graph status --project repo-a            # or pick one per invocation
 ~~~
 
-Inside Codex (MCP) the same switching is one call: the server instructs Codex to invoke
+Inside any MCP client the same switching is one call: the server instructs the agent to invoke
 `requirement_graph_use_project` once with the project directory or id at the start of the session, after
 which every tool acts on that project; `requirement_graph_list_projects` lists registered projects. So
 moving between several repositories/folders is just switching an id — no per-project MCP configuration
@@ -201,6 +202,24 @@ requirement-graph web stop --project D:\Work\my-app
 
 Running `requirement-graph ui` (or `serve --web`) directly in a terminal remains interactive and stops
 with `Ctrl+C`; it shares the same loopback-only web implementation as the MCP daemon without conflict.
+
+## Any MCP client integration
+
+Requirement Graph MCP is a **standard MCP (stdio) server** — it is not tied to any particular agent.
+Codex, Claude, Cursor, custom agents, or any MCP-capable client can connect. Most clients only need a
+command and its arguments:
+
+~~~json
+{ "mcpServers": { "requirement-graph": { "command": "requirement-graph", "args": ["serve", "--mcp"] } } }
+~~~
+
+- **Windows note**: if the client cannot launch the `requirement-graph` shim from PATH (the `.cmd`
+  problem), set `command` to the absolute `node` path and `args` to
+  `["<npm global dir>\\node_modules\\requirement-graph-mcp\\src\\index.js", "serve", "--mcp"]`.
+- **If the client insists on a “working directory / project directory” field**: fill in the project
+  directory of your current session. The server auto-activates it as the default project (zero setup
+  for a single project); to switch projects later, use `requirement_graph_use_project` and
+  `requirement_graph_list_projects` in the conversation — no per-project MCP configuration is needed.
 
 ## Codex MCP integration
 

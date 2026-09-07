@@ -20,7 +20,8 @@
 - [支持的导入格式](#支持的导入格式)
 - [快速开始（本地使用）](#快速开始本地使用)
 - [本地网页版](#本地网页版)
-- [接入 Codex MCP](#接入-codex-mcp)
+- [接入任意 MCP 客户端](#接入任意-mcp-客户端)
+- [接入 Codex MCP](#接入-codex-mcp)（Codex 只是示例）
 - [Codex 网页插件（可选）](#codex-网页插件可选)
 - [图谱数据原则](#图谱数据原则)
 - [测试](#测试)
@@ -138,7 +139,7 @@ requirement-graph project use repo-b                 # 切换默认项目（影�
 requirement-graph status --project repo-a            # 或每次调用显式指定
 ~~~
 
-MCP 里同理：会话开始时让 Codex 调用一次 `requirement_graph_use_project`（传入项目目录或 id），
+MCP 里同理：会话开始时让当前 agent 调用一次 `requirement_graph_use_project`（传入项目目录或 id），
 之后所有工具都作用于该项目；`requirement_graph_list_projects` 列出已登记项目。
 这样在多个仓库/文件夹之间切换只需要换 id，无需每项目配置 MCP 或设置工作目录。
 
@@ -190,6 +191,22 @@ requirement-graph web stop --project D:\Work\my-app
 
 命令行直接前台运行 `requirement-graph ui`（或 `serve --web`）仍是交互模式，按 `Ctrl+C` 停止；
 它与 MCP 打开的持久化服务使用同一套只绑定回环地址的网页实现，互不冲突。
+
+## 接入任意 MCP 客户端
+
+Requirement Graph MCP 是**标准 MCP（stdio）服务**，不绑定任何特定 agent——Codex、Claude、
+Cursor、自研 agent 等任何支持 MCP 的客户端都能接入。多数客户端只需要填写 command 与 args：
+
+~~~json
+{ "mcpServers": { "requirement-graph": { "command": "requirement-graph", "args": ["serve", "--mcp"] } } }
+~~~
+
+- **Windows 注意事项**：若客户端无法直接启动 PATH 里的 `requirement-graph`（`.cmd` shim 问题），
+  把 `command` 换成 `node` 的绝对路径，`args` 换成
+  `["<npm全局目录>\\node_modules\\requirement-graph-mcp\\src\\index.js", "serve", "--mcp"]`。
+- **客户端若强制要求填“工作目录 / 项目目录”**：填你当前会话的项目目录即可——服务端会把它
+  自动激活为默认项目（单项目零操作），多项目在对话里用
+  `requirement_graph_use_project` / `requirement_graph_list_projects` 切换，无需为每个项目单独配 MCP。
 
 ## 接入 Codex MCP
 
